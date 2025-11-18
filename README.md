@@ -39,14 +39,16 @@ When you ask the AI a question, it decides if it needs external data. If so, it:
 
 ## Project Structure
 
-```
+\`\`\`
 simple-mcp-chat/
 ├── chat.py          # Main application (heavily commented!)
 ├── pyproject.toml   # Python dependencies
+├── uv.lock          # Locked dependency versions
 ├── .env             # Your API keys (don't commit this!)
-├── .env.example     # Example configuration
+├── env.example      # Example configuration
+├── gitignore        # Git ignore rules
 └── README.md        # You're reading it
-```
+\`\`\`
 
 ## Prerequisites
 
@@ -61,22 +63,22 @@ Before you start, you'll need:
 
 ### Step 1: Clone or Download
 
-```bash
+\`\`\`bash
 git clone <your-repo-url>
 cd simple-mcp-chat
-```
+\`\`\`
 
 ### Step 2: Create Your Environment File
 
 Copy the example environment file:
 
-```bash
-cp .env.example .env
-```
+\`\`\`bash
+cp env.example .env
+\`\`\`
 
-Then edit `.env` with your actual values:
+Then edit \`.env\` with your actual values:
 
-```env
+\`\`\`env
 # Your OpenAI API key
 OPENAI_API_KEY=sk-proj-...your-key-here...
 
@@ -85,34 +87,34 @@ MODEL=gpt-4o-mini
 
 # Your Workato MCP server URL (includes authentication token)
 MCP_URL=https://your-workspace.apim.mcp.workato.com/your-project/your-api?wkt_token=your-token
-```
+\`\`\`
 
 ### Step 3: Install Dependencies
 
-```bash
+\`\`\`bash
 uv sync
-```
+\`\`\`
 
 This installs:
-- `openai` - For talking to GPT
-- `python-dotenv` - For loading your .env file
-- `requests` - For making HTTP calls to the MCP server
+- \`openai\` - For talking to GPT
+- \`python-dotenv\` - For loading your .env file
+- \`requests\` - For making HTTP calls to the MCP server
 
 ### Step 4: Run the Chat
 
-```bash
+\`\`\`bash
 uv run python chat.py
-```
+\`\`\`
 
 You should see:
-```
+\`\`\`
 MCP Chat - Connected to 5 tools
 Tools: Get_Alerts_v1, Get_Data_Range_v1, Get_Devices_v1, Get_Events_v1, Get_Glucose_Values_v1
 Type 'quit' or 'exit' to end
 ----------------------------------------
 
 You:
-```
+\`\`\`
 
 ## How to Use
 
@@ -124,3 +126,49 @@ Just type natural language questions! The AI will figure out which tools to use.
 You: What glucose data do you have available?
 
 [Calling Get_Data_Range_v1...]
+
+Assistant: I have glucose data available from January 15, 2024 to January 22, 2024.
+
+You: Show me my glucose readings from yesterday
+
+[Calling Get_Glucose_Values_v1...]
+
+Assistant: Here are your glucose readings from yesterday...
+```
+
+## Example Prompts
+
+Here are some prompts you can try with different MCP tools:
+
+### Health Data (Dexcom)
+- "What date range of data do you have?"
+- "Show me my glucose values from the last 24 hours"
+- "What was my average glucose yesterday?"
+- "Were there any high or low alerts this week?"
+- "What devices are connected to my account?"
+- "Show me any events I logged today"
+
+### General Queries
+- "What tools do you have available?"
+- "Help me understand my recent health trends"
+- "Summarize my data from last week"
+
+### Multi-Tool Queries
+The AI can automatically chain multiple tool calls:
+- "Compare my glucose levels between Monday and Tuesday"
+- "Show me all alerts and their corresponding glucose values"
+
+## Troubleshooting
+
+### "No tools discovered"
+Check that your `MCP_URL` is correct and includes the authentication token.
+
+### "Error calling tool"
+The MCP server might be down or your token might have expired. Check your Workato workspace.
+
+### "Invalid API key"
+Make sure your `OPENAI_API_KEY` is correct in the `.env` file.
+
+## License
+
+MIT
