@@ -1,8 +1,8 @@
 {
   "servers": [
     {
-      "name": "dexcom",
-      "url": "https://apim.workato.com/your-workspace/dexcom-mcp?token=YOUR_DEXCOM_TOKEN",
+      "name": "jira",
+      "url": "https://apim.workato.com/your-workspace/jira-mcp?token=YOUR_JIRA_TOKEN",
       "enabled": true
     },
     {
