@@ -35,22 +35,69 @@ load_dotenv()
 # This is what we'll use to send messages to GPT and get responses
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Get the MCP server URL from environment variables
-# This URL points to your Workato MCP endpoint and includes authentication
-MCP_URL = os.getenv("MCP_URL")
-
 # Get the model name from environment, with a default fallback
 # You can change this to gpt-4o, gpt-3.5-turbo, etc.
 MODEL = os.getenv("MODEL", "gpt-4o-mini")
+
+# Path to the MCP servers configuration file
+MCP_SERVERS_CONFIG = os.path.join(os.path.dirname(__file__), "mcp_servers.json")
+
+# Dictionary to store server name -> URL mappings
+# This is populated by load_mcp_servers()
+MCP_SERVERS = {}
+
+
+def load_mcp_servers() -> dict:
+    """
+    Load MCP server configurations from the JSON config file.
+
+    The config file (mcp_servers.json) should have this format:
+    {
+        "servers": [
+            {
+                "name": "server_name",
+                "url": "https://...",
+                "enabled": true
+            }
+        ]
+    }
+
+    Returns:
+        Dictionary mapping server names to their URLs
+    """
+    global MCP_SERVERS
+
+    if not os.path.exists(MCP_SERVERS_CONFIG):
+        print(f"Warning: {MCP_SERVERS_CONFIG} not found")
+        return {}
+
+    try:
+        with open(MCP_SERVERS_CONFIG, 'r') as f:
+            config = json.load(f)
+
+        servers = {}
+        for server in config.get("servers", []):
+            if server.get("enabled", True):
+                name = server.get("name")
+                url = server.get("url")
+                if name and url:
+                    servers[name] = url
+
+        MCP_SERVERS = servers
+        return servers
+
+    except Exception as e:
+        print(f"Error loading MCP servers config: {e}")
+        return {}
 
 
 # =============================================================================
 # MCP SERVER COMMUNICATION
 # =============================================================================
 
-def mcp_request(method: str, params: dict = None) -> dict: # type: ignore
+def mcp_request(url: str, method: str, params: dict = None) -> dict: # type: ignore
     """
-    Make a JSON-RPC request to the MCP server.
+    Make a JSON-RPC request to an MCP server.
 
     MCP uses JSON-RPC 2.0 protocol, which is a simple way to call remote functions.
     Each request has:
@@ -60,6 +107,7 @@ def mcp_request(method: str, params: dict = None) -> dict: # type: ignore
     - params: Any parameters the function needs
 
     Args:
+        url: The MCP server URL to send the request to
         method: The MCP method to call (e.g., "tools/list" or "tools/call")
         params: Optional dictionary of parameters for the method
 
@@ -68,10 +116,10 @@ def mcp_request(method: str, params: dict = None) -> dict: # type: ignore
 
     Example:
         # List all available tools
-        result = mcp_request("tools/list")
+        result = mcp_request(server_url, "tools/list")
 
         # Call a specific tool
-        result = mcp_request("tools/call", {
+        result = mcp_request(server_url, "tools/call", {
             "name": "Get_Glucose_Values_v1",
             "arguments": {"start_date": "2024-01-01", "end_date": "2024-01-07"}
         })
@@ -86,7 +134,7 @@ def mcp_request(method: str, params: dict = None) -> dict: # type: ignore
 
     # Send the request to the MCP server
     # timeout=30 means we'll wait up to 30 seconds for a response
-    response = requests.post(MCP_URL, json=payload, timeout=30) # type: ignore
+    response = requests.post(url, json=payload, timeout=30)
 
     # Raise an error if the request failed (e.g., 404, 500 errors)
     response.raise_for_status()
@@ -101,15 +149,19 @@ def mcp_request(method: str, params: dict = None) -> dict: # type: ignore
 
 def discover_tools() -> list:
     """
-    Discover available tools from the MCP server.
+    Discover available tools from all configured MCP servers.
 
     This function:
-    1. Calls the MCP server's "tools/list" endpoint
-    2. Gets back a list of available tools with their descriptions and parameters
-    3. Converts them to the format OpenAI expects for function calling
+    1. Loads server configurations from mcp_servers.json
+    2. Calls each server's "tools/list" endpoint
+    3. Prefixes tool names with server name to avoid conflicts
+    4. Converts them to the format OpenAI expects for function calling
 
     The conversion is necessary because MCP and OpenAI use slightly different
     formats for describing tools/functions.
+
+    Tool names are prefixed with the server name using double underscore:
+    e.g., "Get_Glucose_Values_v1" becomes "dexcom__Get_Glucose_Values_v1"
 
     Returns:
         A list of tools in OpenAI's function calling format
@@ -118,7 +170,7 @@ def discover_tools() -> list:
         {
             "type": "function",
             "function": {
-                "name": "tool_name",
+                "name": "server__tool_name",
                 "description": "What the tool does",
                 "parameters": {
                     "type": "object",
@@ -129,50 +181,61 @@ def discover_tools() -> list:
             }
         }
     """
-    # If no MCP URL is configured, return empty list (no tools available)
-    if not MCP_URL:
+    # Load MCP servers from config
+    servers = load_mcp_servers()
+
+    # If no servers are configured, return empty list
+    if not servers:
         return []
 
-    try:
-        # Ask the MCP server what tools are available
-        result = mcp_request("tools/list")
+    openai_tools = []
 
-        # Extract the tools array from the response
-        tools = result.get("result", {}).get("tools", [])
+    # Discover tools from each server
+    for server_name, server_url in servers.items():
+        try:
+            # Ask the MCP server what tools are available
+            result = mcp_request(server_url, "tools/list")
 
-        # Convert MCP tools to OpenAI function format
-        openai_tools = []
-        for tool in tools:
-            # Get the input schema (describes what parameters the tool accepts)
-            # Some tools might not have a schema, so we provide defaults
-            schema = tool.get("inputSchema", {})
+            # Extract the tools array from the response
+            tools = result.get("result", {}).get("tools", [])
 
-            # Ensure the schema has the required "type" field
-            if "type" not in schema:
-                schema["type"] = "object"
+            # Convert MCP tools to OpenAI function format
+            for tool in tools:
+                # Get the input schema (describes what parameters the tool accepts)
+                # Some tools might not have a schema, so we provide defaults
+                schema = tool.get("inputSchema", {})
 
-            # OpenAI requires a "properties" field, even if empty
-            # This handles tools that don't take any parameters
-            if "properties" not in schema or not schema["properties"]:
-                schema["properties"] = {}
+                # Ensure the schema has the required "type" field
+                if "type" not in schema:
+                    schema["type"] = "object"
 
-            # Build the tool definition in OpenAI's format
-            openai_tool = {
-                "type": "function",
-                "function": {
-                    "name": tool["name"],
-                    "description": tool.get("description", ""),
-                    "parameters": schema
+                # OpenAI requires a "properties" field, even if empty
+                # This handles tools that don't take any parameters
+                if "properties" not in schema or not schema["properties"]:
+                    schema["properties"] = {}
+
+                # Prefix tool name with server name to avoid conflicts
+                # e.g., "Get_Glucose_Values_v1" -> "dexcom__Get_Glucose_Values_v1"
+                prefixed_name = f"{server_name}__{tool['name']}"
+
+                # Build the tool definition in OpenAI's format
+                openai_tool = {
+                    "type": "function",
+                    "function": {
+                        "name": prefixed_name,
+                        "description": tool.get("description", ""),
+                        "parameters": schema
+                    }
                 }
-            }
-            openai_tools.append(openai_tool)
+                openai_tools.append(openai_tool)
 
-        return openai_tools
+            print(f"  - {server_name}: {len(tools)} tools")
 
-    except Exception as e:
-        # If anything goes wrong, print the error and return empty list
-        print(f"Failed to discover tools: {e}")
-        return []
+        except Exception as e:
+            # If a server fails, print error but continue with others
+            print(f"  - {server_name}: Failed to discover tools: {e}")
+
+    return openai_tools
 
 
 # =============================================================================
@@ -181,31 +244,45 @@ def discover_tools() -> list:
 
 def call_tool(name: str, arguments: dict) -> str:
     """
-    Call a tool on the MCP server and return its result.
+    Call a tool on the appropriate MCP server and return its result.
 
     When OpenAI decides it needs to use a tool, it tells us:
-    - Which tool to call (name)
+    - Which tool to call (name, prefixed with server name)
     - What parameters to pass (arguments)
 
-    We then make the actual call to the MCP server and return the result.
+    We parse the server name from the tool prefix, route the request to the
+    correct MCP server, and return the result.
 
     Args:
-        name: The name of the tool to call (e.g., "Get_Glucose_Values_v1")
+        name: The prefixed tool name (e.g., "dexcom__Get_Glucose_Values_v1")
         arguments: Dictionary of arguments to pass to the tool
 
     Returns:
         The tool's result as a string (for OpenAI to process)
 
     Example:
-        result = call_tool("Get_Data_Range_v1", {})
-        result = call_tool("Get_Glucose_Values_v1", {
+        result = call_tool("dexcom__Get_Data_Range_v1", {})
+        result = call_tool("dexcom__Get_Glucose_Values_v1", {
             "start_date_time": "2024-01-01T00:00:00",
             "end_date_time": "2024-01-07T23:59:59"
         })
     """
     try:
-        # Make the MCP request to call the tool
-        result = mcp_request("tools/call", {"name": name, "arguments": arguments})
+        # Parse server name and original tool name from prefixed name
+        # e.g., "dexcom__Get_Glucose_Values_v1" -> ("dexcom", "Get_Glucose_Values_v1")
+        if "__" not in name:
+            return f"Error: Invalid tool name format '{name}'. Expected 'server__tool_name'."
+
+        server_name, tool_name = name.split("__", 1)
+
+        # Look up the server URL
+        if server_name not in MCP_SERVERS:
+            return f"Error: Unknown server '{server_name}'. Available servers: {list(MCP_SERVERS.keys())}"
+
+        server_url = MCP_SERVERS[server_name]
+
+        # Make the MCP request to call the tool (using original tool name)
+        result = mcp_request(server_url, "tools/call", {"name": tool_name, "arguments": arguments})
 
         # Extract the content from the MCP response
         # MCP returns results in a specific format with "content" array
@@ -251,17 +328,18 @@ def chat():
     messages = []
 
     # Discover available MCP tools at startup
+    print("MCP Chat - Discovering tools...")
     tools = discover_tools()
 
     # Display startup message
-    if MCP_URL and tools:
-        print(f"MCP Chat - Connected to {len(tools)} tools")
-        tool_names = [t["function"]["name"] for t in tools]
-        print(f"Tools: {', '.join(tool_names)}")
+    if MCP_SERVERS and tools:
+        print(f"\nConnected to {len(MCP_SERVERS)} server(s) with {len(tools)} total tools")
     else:
-        print("Simple OpenAI Chatbot")
-        if MCP_URL:
-            print("(No tools discovered from MCP server)")
+        print("\nSimple OpenAI Chatbot")
+        if not MCP_SERVERS:
+            print("(No MCP servers configured in mcp_servers.json)")
+        else:
+            print("(No tools discovered from MCP servers)")
 
     print("Type 'quit' or 'exit' to end")
     print("-" * 40)

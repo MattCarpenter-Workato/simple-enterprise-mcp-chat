@@ -1,0 +1,19 @@
+{
+  "servers": [
+    {
+      "name": "dexcom",
+      "url": "https://apim.workato.com/your-workspace/dexcom-mcp?token=YOUR_DEXCOM_TOKEN",
+      "enabled": true
+    },
+    {
+      "name": "salesforce",
+      "url": "https://apim.workato.com/your-workspace/salesforce-mcp?token=YOUR_SALESFORCE_TOKEN",
+      "enabled": true
+    },
+    {
+      "name": "slack",
+      "url": "https://apim.workato.com/your-workspace/slack-mcp?token=YOUR_SLACK_TOKEN",
+      "enabled": false
+    }
+  ]
+}
