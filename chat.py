@@ -48,7 +48,7 @@ MODEL = os.getenv("MODEL", "gpt-4o-mini")
 # MCP SERVER COMMUNICATION
 # =============================================================================
 
-def mcp_request(method: str, params: dict = None) -> dict:
+def mcp_request(method: str, params: dict = None) -> dict: # type: ignore
     """
     Make a JSON-RPC request to the MCP server.
 
@@ -86,7 +86,7 @@ def mcp_request(method: str, params: dict = None) -> dict:
 
     # Send the request to the MCP server
     # timeout=30 means we'll wait up to 30 seconds for a response
-    response = requests.post(MCP_URL, json=payload, timeout=30)
+    response = requests.post(MCP_URL, json=payload, timeout=30) # type: ignore
 
     # Raise an error if the request failed (e.g., 404, 500 errors)
     response.raise_for_status()
