@@ -5,8 +5,8 @@ A beginner-friendly Python chatbot that connects to Workato's Enterprise MCP ser
 ## What Does This Do?
 
 This chatbot can:
-1. **Connect** to a Workato MCP server
-2. **Discover** what tools are available (like getting health data, alerts, etc.)
+1. **Connect** to multiple Workato MCP servers simultaneously
+2. **Discover** what tools are available from each server (like getting health data, CRM records, etc.)
 3. **Chat** with an AI that automatically uses those tools to answer your questions
 
 For example, if you connect to a Dexcom health MCP server, you could ask:
@@ -14,7 +14,10 @@ For example, if you connect to a Dexcom health MCP server, you could ask:
 - "Show me any alerts from yesterday"
 - "What devices do I have connected?"
 
-The AI will automatically call the right tools and give you a natural language response.
+Or if you have multiple servers configured (e.g., Dexcom + Salesforce), you could ask:
+- "Show me my glucose data and my recent Salesforce contacts"
+
+The AI will automatically call the right tools from the right servers and give you a natural language response.
 
 ## Key Concepts Explained
 
@@ -41,13 +44,15 @@ When you ask the AI a question, it decides if it needs external data. If so, it:
 
 \`\`\`
 simple-mcp-chat/
-├── chat.py          # Main application (heavily commented!)
-├── pyproject.toml   # Python dependencies
-├── uv.lock          # Locked dependency versions
-├── .env             # Your API keys (don't commit this!)
-├── env.example      # Example configuration
-├── gitignore        # Git ignore rules
-└── README.md        # You're reading it
+├── chat.py                    # Main application (heavily commented!)
+├── mcp_servers.json           # Your MCP server configs (don't commit this!)
+├── mcp_servers.example.json   # Example server configuration
+├── pyproject.toml             # Python dependencies
+├── uv.lock                    # Locked dependency versions
+├── .env                       # Your API keys (don't commit this!)
+├── env.example                # Example environment configuration
+├── .gitignore                 # Git ignore rules
+└── README.md                  # You're reading it
 \`\`\`
 
 ## Prerequisites
@@ -57,7 +62,7 @@ Before you start, you'll need:
 1. **Python 3.10+** installed on your computer
 2. **uv** package manager ([install instructions](https://github.com/astral-sh/uv))
 3. **OpenAI API key** from [platform.openai.com](https://platform.openai.com)
-4. **Workato MCP URL** from your Workato workspace
+4. **Workato MCP URL(s)** from your Workato workspace
 
 ## Setup Instructions
 
@@ -68,15 +73,16 @@ git clone <your-repo-url>
 cd simple-mcp-chat
 \`\`\`
 
-### Step 2: Create Your Environment File
+### Step 2: Create Your Configuration Files
 
-Copy the example environment file:
+Copy the example files:
 
 \`\`\`bash
 cp env.example .env
+cp mcp_servers.example.json mcp_servers.json
 \`\`\`
 
-Then edit \`.env\` with your actual values:
+Edit \`.env\` with your OpenAI API key:
 
 \`\`\`env
 # Your OpenAI API key
@@ -84,10 +90,31 @@ OPENAI_API_KEY=sk-proj-...your-key-here...
 
 # Which model to use (gpt-4o-mini is cheap and fast)
 MODEL=gpt-4o-mini
-
-# Your Workato MCP server URL (includes authentication token)
-MCP_URL=https://your-workspace.apim.mcp.workato.com/your-project/your-api?wkt_token=your-token
 \`\`\`
+
+Edit \`mcp_servers.json\` to configure your MCP servers:
+
+\`\`\`json
+{
+  "servers": [
+    {
+      "name": "dexcom",
+      "url": "https://apim.workato.com/your-workspace/dexcom-mcp?token=YOUR_TOKEN",
+      "enabled": true
+    },
+    {
+      "name": "salesforce",
+      "url": "https://apim.workato.com/your-workspace/salesforce-mcp?token=YOUR_TOKEN",
+      "enabled": true
+    }
+  ]
+}
+\`\`\`
+
+Each server needs:
+- **name**: A short identifier (used to prefix tool names)
+- **url**: The full Workato MCP endpoint URL with authentication token
+- **enabled**: Set to `false` to temporarily disable a server
 
 ### Step 3: Install Dependencies
 
@@ -108,13 +135,18 @@ uv run python chat.py
 
 You should see:
 \`\`\`
-MCP Chat - Connected to 5 tools
-Tools: Get_Alerts_v1, Get_Data_Range_v1, Get_Devices_v1, Get_Events_v1, Get_Glucose_Values_v1
+MCP Chat - Discovering tools...
+  - dexcom: 5 tools
+  - salesforce: 3 tools
+
+Connected to 2 server(s) with 8 total tools
 Type 'quit' or 'exit' to end
 ----------------------------------------
 
 You:
 \`\`\`
+
+Tool names are automatically prefixed with the server name (e.g., \`dexcom__Get_Glucose_Values_v1\`) to avoid conflicts between servers.
 
 ## How to Use
 
@@ -160,14 +192,20 @@ The AI can automatically chain multiple tool calls:
 
 ## Troubleshooting
 
+### "No MCP servers configured"
+Make sure you have a `mcp_servers.json` file with at least one server configured.
+
 ### "No tools discovered"
-Check that your `MCP_URL` is correct and includes the authentication token.
+Check that your server URLs in `mcp_servers.json` are correct and include the authentication token.
 
 ### "Error calling tool"
 The MCP server might be down or your token might have expired. Check your Workato workspace.
 
 ### "Invalid API key"
 Make sure your `OPENAI_API_KEY` is correct in the `.env` file.
+
+### One server fails but others work
+The chatbot will continue with the servers that succeed. Check the error message for the failing server and verify its URL/token.
 
 ## License
 

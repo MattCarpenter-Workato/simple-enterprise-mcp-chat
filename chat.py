@@ -6,14 +6,34 @@ MCP (Model Context Protocol) servers. It's designed to be the simplest possible
 example of using MCP tools with OpenAI's function calling feature.
 
 What this script does:
-1. Connects to a Workato MCP server
-2. Discovers what tools are available (like getting glucose data, alerts, etc.)
-3. Lets you chat with an AI that can use those tools to answer your questions
+1. Loads MCP server configurations from mcp_servers.json
+2. Connects to multiple Workato MCP servers simultaneously
+3. Discovers what tools are available from each server
+4. Lets you chat with an AI that can use those tools to answer your questions
 
 Key Concepts:
 - MCP (Model Context Protocol): A standard way for AI models to use external tools
 - JSON-RPC: A simple protocol for making remote procedure calls using JSON
 - Function Calling: OpenAI's feature that lets the AI decide when to use tools
+
+Multi-Server Support:
+This script supports connecting to multiple MCP servers at once. Each server is
+configured in mcp_servers.json with a name, URL, and enabled flag:
+
+    {
+        "servers": [
+            {"name": "dexcom", "url": "https://...", "enabled": true},
+            {"name": "salesforce", "url": "https://...", "enabled": true}
+        ]
+    }
+
+To avoid tool name conflicts between servers, tool names are automatically
+prefixed with the server name using double underscores. For example:
+- "Get_Glucose_Values_v1" from dexcom becomes "dexcom__Get_Glucose_Values_v1"
+- "Query_Contacts_v1" from salesforce becomes "salesforce__Query_Contacts_v1"
+
+When the AI calls a tool, we parse this prefix to route the request to the
+correct MCP server.
 
 """
 
