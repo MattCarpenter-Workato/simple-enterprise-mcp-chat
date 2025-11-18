@@ -15,8 +15,6 @@ Key Concepts:
 - JSON-RPC: A simple protocol for making remote procedure calls using JSON
 - Function Calling: OpenAI's feature that lets the AI decide when to use tools
 
-Author: Your Name
-License: MIT
 """
 
 import os
