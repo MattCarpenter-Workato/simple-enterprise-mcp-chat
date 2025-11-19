@@ -2,6 +2,8 @@
 
 A beginner-friendly Python chatbot that connects to Workato's Enterprise MCP servers. This is the simplest possible example of using MCP (Model Context Protocol) with OpenAI's function calling feature.
 
+**Now with LM Studio support!** Run your MCP chatbot with local LLMs for privacy and cost savings.
+
 ## What Does This Do?
 
 This chatbot can:
@@ -44,7 +46,8 @@ When you ask the AI a question, it decides if it needs external data. If so, it:
 
 \`\`\`
 simple-mcp-chat/
-├── chat.py                    # Main application (heavily commented!)
+├── chat.py                    # Main application using OpenAI (heavily commented!)
+├── chat-lmstudio.py           # LM Studio version for local LLMs
 ├── mcp_servers.json           # Your MCP server configs (don't commit this!)
 ├── mcp_servers.example.json   # Example server configuration
 ├── pyproject.toml             # Python dependencies
@@ -129,6 +132,8 @@ This installs:
 
 ### Step 4: Run the Chat
 
+#### Option A: OpenAI (Cloud)
+
 \`\`\`bash
 uv run python chat.py
 \`\`\`
@@ -144,6 +149,45 @@ Type 'quit' or 'exit' to end
 ----------------------------------------
 
 You:
+\`\`\`
+
+#### Option B: LM Studio (Local)
+
+For running with a local LLM via LM Studio:
+
+1. **Install and start LM Studio** from [lmstudio.ai](https://lmstudio.ai)
+2. **Load a model** that supports function calling (look for models with "function calling" or "tool use" support)
+3. **Start the local server** in LM Studio (default: `http://localhost:1234`)
+4. **Run the LM Studio chat**:
+
+\`\`\`bash
+uv run python chat-lmstudio.py
+\`\`\`
+
+You should see:
+\`\`\`
+LM Studio MCP Chat - Discovering tools...
+  - dexcom: 5 tools
+  - salesforce: 3 tools
+
+Connected to LM Studio at http://localhost:1234/v1
+Connected to 2 MCP server(s) with 8 total tools
+
+Note: Make sure you have a model loaded in LM Studio!
+For best results, use a model that supports function calling.
+Type 'quit' or 'exit' to end
+----------------------------------------
+
+You:
+\`\`\`
+
+**LM Studio Configuration** (optional, in `.env`):
+\`\`\`env
+# Change the LM Studio server URL if needed
+LMSTUDIO_BASE_URL=http://localhost:1234/v1
+
+# Model name (usually ignored by LM Studio)
+LMSTUDIO_MODEL=local-model
 \`\`\`
 
 Tool names are automatically prefixed with the server name (e.g., \`dexcom__Get_Glucose_Values_v1\`) to avoid conflicts between servers.
@@ -206,6 +250,15 @@ Make sure your `OPENAI_API_KEY` is correct in the `.env` file.
 
 ### One server fails but others work
 The chatbot will continue with the servers that succeed. Check the error message for the failing server and verify its URL/token.
+
+### LM Studio: "Could not connect to LM Studio"
+Make sure LM Studio is running and the local server is started. Check that the URL matches (default: `http://localhost:1234/v1`).
+
+### LM Studio: Tools not being called
+Not all models support function calling. Try a model that explicitly supports tool use, such as:
+- Mistral Instruct models
+- Llama models with function calling support
+- Qwen models with tool support
 
 ## License
 
