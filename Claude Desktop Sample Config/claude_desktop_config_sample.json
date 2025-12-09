@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "example-server-1": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "https://example.apim.mcp.workato.com?wkt_token=YOUR_TOKEN_HERE"
+      ]
+    },
+    "example-server-2": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "https://example.apim.mcp.workato.com/environment123/service-name?wkt_token=YOUR_TOKEN_HERE"
+      ]
+    },
+    "example-server-no-token": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "https://example.apim.mcp.workato.com/"
+      ]
+    }
+  }
+}

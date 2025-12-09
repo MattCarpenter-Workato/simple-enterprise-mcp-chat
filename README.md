@@ -48,8 +48,10 @@ When you ask the AI a question, it decides if it needs external data. If so, it:
 simple-mcp-chat/
 ├── chat.py                    # Main application using OpenAI (heavily commented!)
 ├── chat-lmstudio.py           # LM Studio version for local LLMs
+├── oauth_handler.py           # OAuth 2.0 authentication handler with PKCE
 ├── mcp_servers.json           # Your MCP server configs (don't commit this!)
 ├── mcp_servers.example.json   # Example server configuration
+├── .mcp_tokens.json           # OAuth tokens storage (auto-generated, don't commit!)
 ├── pyproject.toml             # Python dependencies
 ├── uv.lock                    # Locked dependency versions
 ├── .env                       # Your API keys (don't commit this!)
@@ -125,7 +127,7 @@ OAuth 2.0 authentication (browser-based) for servers that require OAuth:
   "servers": [
     {
       "name": "sheets",
-      "url": "https://apim.workato.com/your-workspace/sheets-mcp",
+      "url": "https://2107.apim.mcp.workato.com/",
       "enabled": true,
       "auth_type": "oauth"
     }
@@ -133,33 +135,42 @@ OAuth 2.0 authentication (browser-based) for servers that require OAuth:
 }
 \`\`\`
 
-That's it! The OAuth endpoints will be automatically discovered from the server URL. When you run the chatbot, it will:
+That's it! Just set `"auth_type": "oauth"` and everything else is automatic. When you run the chatbot, it will:
 
-1. Auto-discover OAuth endpoints (\`/oauth/authorize\` and \`/oauth/token\`)
-2. Check if you have a stored, valid OAuth token
-3. If not, open your browser for authentication
-4. Start a local server on port 8080 to receive the OAuth callback
-5. Exchange the authorization code for an access token
-6. Store the token securely in \`.mcp_tokens.json\` (excluded from Git)
-7. Automatically refresh tokens when they expire
+1. **Auto-discover OAuth endpoints** via `.well-known/oauth-authorization-server`
+2. **Auto-register as an OAuth client** using dynamic client registration (RFC 7591)
+3. Check if you have a stored, valid OAuth token
+4. If not, **open your browser** for authentication
+5. Start a local server on port 8080 to receive the OAuth callback
+6. Exchange the authorization code for an access token using **PKCE** (Proof Key for Code Exchange, RFC 7636) for security
+7. Store the token securely in `.mcp_tokens.json` (excluded from Git)
+8. Use **Bearer token authentication** in the Authorization header (standard OAuth practice)
+9. Automatically refresh tokens when they expire
+
+**Security Features:**
+- **PKCE (RFC 7636)**: Protects against authorization code interception attacks
+- **Dynamic Client Registration (RFC 7591)**: No manual OAuth client setup required
+- **Automatic OAuth Discovery**: Discovers endpoints from `.well-known/oauth-authorization-server`
+- **Token Storage**: Securely stores tokens separately from client credentials
+- **Bearer Token Authentication**: Uses standard `Authorization: Bearer <token>` headers
 
 **Optional OAuth Configuration**
 
-If your server requires additional OAuth parameters, you can optionally provide them:
+All OAuth parameters are optional and will be auto-discovered/auto-configured if not provided. You can override defaults if needed:
 
 \`\`\`json
 {
   "name": "sheets",
-  "url": "https://apim.workato.com/your-workspace/sheets-mcp",
+  "url": "https://2107.apim.mcp.workato.com/",
   "enabled": true,
   "auth_type": "oauth",
   "oauth": {
-    "client_id": "your_client_id",
-    "client_secret": "your_client_secret",
-    "scopes": ["mcp.read", "mcp.write"],
-    "redirect_port": 8080,
-    "auth_url": "https://custom.auth.url/authorize",
-    "token_url": "https://custom.auth.url/token"
+    "client_id": "custom_client_id",           // Optional: Will auto-register if not provided
+    "client_secret": "custom_client_secret",   // Optional: Will auto-register if not provided
+    "scopes": ["mcp.read", "mcp.write"],       // Optional: Server default scopes used if not provided
+    "redirect_port": 8080,                     // Optional: Default is 8080
+    "auth_url": "https://id.workato.com/oauth/authorize",  // Optional: Auto-discovered if not provided
+    "token_url": "https://id.workato.com/oauth/token"      // Optional: Auto-discovered if not provided
   }
 }
 \`\`\`
@@ -168,15 +179,40 @@ Configuration options for each server:
 
 - **name**: A short identifier (used to prefix tool names)
 - **url**: The full Workato MCP endpoint URL
-- **enabled**: Set to \`false\` to temporarily disable a server
-- **auth_type**: Either \`"token"\` (default) or \`"oauth"\`
-- **oauth** (optional): Additional OAuth configuration
-  - **client_id** (optional): OAuth client ID
-  - **client_secret** (optional): OAuth client secret
-  - **scopes** (optional): Array of OAuth scopes to request
-  - **redirect_port** (optional): Local port for OAuth callback (default: 8080)
-  - **auth_url** (optional): Custom authorization endpoint (auto-discovered if not provided)
-  - **token_url** (optional): Custom token endpoint (auto-discovered if not provided)
+- **enabled**: Set to `false` to temporarily disable a server
+- **auth_type**: Either `"token"` (default) or `"oauth"`
+- **oauth** (optional): All OAuth parameters are optional and auto-configured
+  - **client_id** (optional): OAuth client ID - will auto-register via RFC 7591 if not provided
+  - **client_secret** (optional): OAuth client secret - will auto-register via RFC 7591 if not provided
+  - **scopes** (optional): Array of OAuth scopes to request - uses server defaults if not provided
+  - **redirect_port** (optional): Local port for OAuth callback - default is 8080
+  - **auth_url** (optional): Custom authorization endpoint - auto-discovered via `.well-known/oauth-authorization-server` if not provided
+  - **token_url** (optional): Custom token endpoint - auto-discovered via `.well-known/oauth-authorization-server` if not provided
+
+**OAuth Auto-Discovery & Auto-Registration Flow:**
+
+1. **Endpoint Discovery**: Fetches `.well-known/oauth-authorization-server` from the server URL to discover:
+   - Authorization endpoint
+   - Token endpoint
+   - Registration endpoint
+   - Supported grant types and scopes
+
+2. **Dynamic Client Registration**: If no `client_id` is provided, automatically registers as an OAuth client:
+   - Generates a client name: `simple-mcp-chat-{server_name}`
+   - Sets redirect URI: `http://localhost:{redirect_port}/callback`
+   - Stores client credentials in `.mcp_tokens.json`
+
+3. **PKCE Flow**: Uses Proof Key for Code Exchange for security:
+   - Generates a random code verifier
+   - Creates SHA256 code challenge
+   - Sends challenge with authorization request
+   - Sends verifier with token request
+
+4. **Token Management**:
+   - Stores access tokens and refresh tokens in `.mcp_tokens.json`
+   - Tracks token expiration times
+   - Automatically refreshes tokens when needed
+   - Separates client credentials from access tokens for security
 
 ### Step 3: Install Dependencies
 
@@ -185,9 +221,9 @@ uv sync
 \`\`\`
 
 This installs:
-- \`openai\` - For talking to GPT
-- \`python-dotenv\` - For loading your .env file
-- \`requests\` - For making HTTP calls to the MCP server
+- `openai` - For talking to GPT
+- `python-dotenv` - For loading your .env file
+- `requests` - For making HTTP calls to the MCP server and OAuth authentication
 
 ### Step 4: Run the Chat
 
@@ -208,6 +244,41 @@ Type 'quit' or 'exit' to end
 ----------------------------------------
 
 You:
+\`\`\`
+
+If you have OAuth-enabled servers, the first run will include OAuth authentication:
+\`\`\`
+MCP Chat - Discovering tools...
+  Discovered auth endpoint: https://id.workato.com/oauth/authorize
+  Discovered token endpoint: https://id.workato.com/oauth/token
+  Registering OAuth client for sheets...
+  [OK] Client registered successfully
+
+  Opening browser for OAuth authentication...
+  Waiting for authorization...
+
+  [SUCCESS] Authorization code received
+  [SUCCESS] Access token obtained
+  [SUCCESS] Token stored for future use
+
+  - dexcom: 5 tools
+  - sheets: 1 tools
+
+Connected to 2 server(s) with 6 total tools
+Type 'quit' or 'exit' to end
+----------------------------------------
+
+You:
+\`\`\`
+
+Subsequent runs will use the stored token:
+\`\`\`
+MCP Chat - Discovering tools...
+Using stored token for sheets
+  - dexcom: 5 tools
+  - sheets: 1 tools
+
+Connected to 2 server(s) with 6 total tools
 \`\`\`
 
 #### Option B: LM Studio (Local)
@@ -299,16 +370,33 @@ The AI can automatically chain multiple tool calls:
 Make sure you have a `mcp_servers.json` file with at least one server configured.
 
 ### "No tools discovered"
-Check that your server URLs in `mcp_servers.json` are correct and include the authentication token.
+Check that your server URLs in `mcp_servers.json` are correct and include the authentication token (for token-based auth) or that OAuth authentication succeeded (for OAuth auth).
 
-### "Error calling tool"
-The MCP server might be down or your token might have expired. Check your Workato workspace.
+### "Error calling tool" or "401 Unauthorized"
+- For **token-based auth**: Your token might have expired. Check your Workato workspace for a new token.
+- For **OAuth auth**: Your stored token might have expired. Delete `.mcp_tokens.json` and restart the application to re-authenticate.
 
 ### "Invalid API key"
 Make sure your `OPENAI_API_KEY` is correct in the `.env` file.
 
 ### One server fails but others work
 The chatbot will continue with the servers that succeed. Check the error message for the failing server and verify its URL/token.
+
+### OAuth: "OAuth authentication failed"
+Common causes:
+- **Port 8080 already in use**: Change `redirect_port` in your OAuth config
+- **Browser didn't open**: Manually copy the URL from the terminal into your browser
+- **OAuth server doesn't support dynamic registration**: Manually create an OAuth client in Workato and provide `client_id` and `client_secret` in the config
+
+### OAuth: "Code challenge is required"
+This should not happen - PKCE is automatically enabled. If you see this, please report it as a bug.
+
+### OAuth: Token stored but still getting 401 errors
+The OAuth implementation uses Bearer token authentication. If you're still getting 401 errors:
+1. Delete `.mcp_tokens.json`
+2. Restart the application
+3. Re-authenticate in the browser
+4. The new token will use Bearer authentication
 
 ### LM Studio: "Could not connect to LM Studio"
 Make sure LM Studio is running and the local server is started. Check that the URL matches (default: `http://localhost:1234/v1`).
