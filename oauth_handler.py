@@ -9,6 +9,9 @@ callback and exchanges the authorization code for access tokens.
 import json
 import os
 import webbrowser
+import secrets
+import hashlib
+import base64
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, urlencode
 from typing import Optional, Dict, Any
@@ -38,7 +41,7 @@ class OAuthCallbackHandler(BaseHTTPRequestHandler):
             <html>
             <head><title>Authentication Successful</title></head>
             <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
-                <h1 style="color: green;">✓ Authentication Successful!</h1>
+                <h1 style="color: green;">[SUCCESS] Authentication Successful!</h1>
                 <p>You can close this window and return to the terminal.</p>
             </body>
             </html>
@@ -54,7 +57,7 @@ class OAuthCallbackHandler(BaseHTTPRequestHandler):
             <html>
             <head><title>Authentication Failed</title></head>
             <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
-                <h1 style="color: red;">✗ Authentication Failed</h1>
+                <h1 style="color: red;">[ERROR] Authentication Failed</h1>
                 <p><strong>Error:</strong> {OAuthCallbackHandler.auth_error}</p>
                 <p>{error_description}</p>
                 <p>Please close this window and try again.</p>
@@ -90,7 +93,7 @@ class OAuthHandler:
                          Can contain:
                 - auth_url: Authorization endpoint (optional, will auto-discover)
                 - token_url: Token endpoint (optional, will auto-discover)
-                - client_id: OAuth client ID (optional for some flows)
+                - client_id: OAuth client ID (optional, will auto-register)
                 - client_secret: OAuth client secret (optional)
                 - scopes: List of OAuth scopes (optional)
                 - redirect_port: Port for local callback server (default: 8080)
@@ -99,35 +102,123 @@ class OAuthHandler:
         self.server_url = server_url.rstrip('/')
         oauth_config = oauth_config or {}
 
-        # Try to auto-discover OAuth endpoints if not provided
-        self.auth_url = oauth_config.get('auth_url') or self._discover_auth_url()
-        self.token_url = oauth_config.get('token_url') or self._discover_token_url()
-        self.client_id = oauth_config.get('client_id')
-        self.client_secret = oauth_config.get('client_secret')
-        self.scopes = oauth_config.get('scopes', [])
         self.redirect_port = oauth_config.get('redirect_port', 8080)
         self.redirect_uri = f"http://localhost:{self.redirect_port}/callback"
 
-    def _discover_auth_url(self) -> str:
+        # Discover OAuth configuration
+        self.discovery_data = self._discover_oauth_config()
+
+        # Try to auto-discover OAuth endpoints if not provided
+        self.auth_url = oauth_config.get('auth_url') or self._discover_auth_url()
+        self.token_url = oauth_config.get('token_url') or self._discover_token_url()
+        self.registration_endpoint = self.discovery_data.get('registration_endpoint') if self.discovery_data else None
+
+        self.client_id = oauth_config.get('client_id')
+        self.client_secret = oauth_config.get('client_secret')
+        self.scopes = oauth_config.get('scopes', [])
+
+        # Auto-register if no client credentials provided and registration is available
+        if not self.client_id and self.registration_endpoint:
+            self._auto_register_client()
+
+    def _discover_oauth_config(self) -> Optional[Dict[str, Any]]:
         """
-        Discover OAuth authorization URL from server
+        Discover OAuth configuration from server
 
         Returns:
-            Authorization URL, or a default based on server URL
+            Discovery data or None if discovery fails
         """
-        # For Workato MCP servers, construct the auth URL from the base
-        # Example: https://2107.apim.mcp.workato.com/ -> https://2107.apim.mcp.workato.com/oauth/authorize
+        try:
+            discovery_url = f"{self.server_url}/.well-known/oauth-authorization-server"
+            response = requests.get(discovery_url, timeout=5)
+
+            if response.status_code == 200:
+                return response.json()
+        except Exception:
+            pass
+
+        return None
+
+    def _auto_register_client(self):
+        """
+        Automatically register OAuth client with the server
+        Stores client credentials in the token storage file
+        """
+        # Check if we already have registered client credentials
+        stored_data = self.get_stored_token()
+        if stored_data and 'client_id' in stored_data:
+            print(f"  Using stored client credentials for {self.server_name}")
+            self.client_id = stored_data['client_id']
+            self.client_secret = stored_data.get('client_secret')
+            return
+
+        print(f"  Registering OAuth client for {self.server_name}...")
+
+        try:
+            # Dynamic Client Registration (RFC 7591)
+            registration_data = {
+                'client_name': f'MCP Chat - {self.server_name}',
+                'redirect_uris': [self.redirect_uri],
+                'grant_types': ['authorization_code', 'refresh_token'],
+                'response_types': ['code'],
+                'token_endpoint_auth_method': 'none'  # Use PKCE instead
+            }
+
+            response = requests.post(
+                self.registration_endpoint,
+                json=registration_data,
+                timeout=30
+            )
+            response.raise_for_status()
+
+            registration_response = response.json()
+            self.client_id = registration_response.get('client_id')
+            self.client_secret = registration_response.get('client_secret')
+
+            # Store client credentials
+            if self.client_id:
+                print(f"  [OK] Client registered successfully")
+                # Store in token file alongside tokens
+                token_data = self.get_stored_token() or {}
+                token_data['client_id'] = self.client_id
+                if self.client_secret:
+                    token_data['client_secret'] = self.client_secret
+                self.store_token(token_data)
+
+        except Exception as e:
+            print(f"  Client registration failed: {e}")
+            # Continue without client credentials - some flows don't require them
+
+    def _discover_auth_url(self) -> str:
+        """
+        Discover OAuth authorization URL from server using OAuth discovery
+
+        Returns:
+            Authorization URL discovered from server or default fallback
+        """
+        if self.discovery_data:
+            auth_url = self.discovery_data.get('authorization_endpoint')
+            if auth_url:
+                print(f"  Discovered auth endpoint: {auth_url}")
+                return auth_url
+
+        # Fallback to default
         return f"{self.server_url}/oauth/authorize"
 
     def _discover_token_url(self) -> str:
         """
-        Discover OAuth token URL from server
+        Discover OAuth token URL from server using OAuth discovery
 
         Returns:
-            Token URL, or a default based on server URL
+            Token URL discovered from server or default fallback
         """
-        # For Workato MCP servers, construct the token URL from the base
-        # Example: https://2107.apim.mcp.workato.com/ -> https://2107.apim.mcp.workato.com/oauth/token
+        if self.discovery_data:
+            token_url = self.discovery_data.get('token_endpoint')
+            if token_url:
+                print(f"  Discovered token endpoint: {token_url}")
+                return token_url
+
+        # Fallback to default
         return f"{self.server_url}/oauth/token"
 
     def get_stored_token(self) -> Optional[Dict[str, Any]]:
@@ -148,6 +239,10 @@ class OAuthHandler:
                 return None
 
             token_data = tokens[self.server_name]
+
+            # If there's no access_token, this is just client credentials
+            if 'access_token' not in token_data:
+                return None
 
             # Check if token has expired
             if 'expires_at' in token_data:
@@ -247,10 +342,18 @@ class OAuthHandler:
         print(f"A browser window will open for you to authorize access.")
         print(f"Waiting for callback on http://localhost:{self.redirect_port}/callback")
 
+        # Generate PKCE code verifier and challenge (RFC 7636)
+        code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('utf-8').rstrip('=')
+        code_challenge = base64.urlsafe_b64encode(
+            hashlib.sha256(code_verifier.encode('utf-8')).digest()
+        ).decode('utf-8').rstrip('=')
+
         # Build authorization URL
         auth_params = {
             'redirect_uri': self.redirect_uri,
-            'response_type': 'code'
+            'response_type': 'code',
+            'code_challenge': code_challenge,
+            'code_challenge_method': 'S256'
         }
 
         # Add optional parameters if provided
@@ -297,7 +400,8 @@ class OAuthHandler:
         token_data = {
             'grant_type': 'authorization_code',
             'code': auth_code,
-            'redirect_uri': self.redirect_uri
+            'redirect_uri': self.redirect_uri,
+            'code_verifier': code_verifier  # PKCE verifier
         }
 
         if self.client_id:
@@ -315,7 +419,7 @@ class OAuthHandler:
             # Store the token
             self.store_token(token_response)
 
-            print(f"✓ Successfully authenticated with {self.server_name}")
+            print(f"[OK] Successfully authenticated with {self.server_name}")
 
             return token_response.get('access_token')
         except requests.RequestException as e:
