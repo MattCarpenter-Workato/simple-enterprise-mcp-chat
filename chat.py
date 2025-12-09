@@ -42,6 +42,7 @@ import json
 import requests
 from dotenv import load_dotenv
 from openai import OpenAI
+from oauth_handler import get_token_for_server
 
 # =============================================================================
 # CONFIGURATION
@@ -77,13 +78,30 @@ def load_mcp_servers() -> dict:
             {
                 "name": "server_name",
                 "url": "https://...",
-                "enabled": true
+                "enabled": true,
+                "auth_type": "token"  // or "oauth"
             }
         ]
     }
 
+    For OAuth-enabled servers, the config should include:
+    {
+        "name": "server_name",
+        "url": "https://...",
+        "enabled": true,
+        "auth_type": "oauth",
+        "oauth": {
+            "auth_url": "https://...",
+            "token_url": "https://...",
+            "client_id": "...",
+            "client_secret": "...",
+            "scopes": ["scope1", "scope2"],
+            "redirect_port": 8080
+        }
+    }
+
     Returns:
-        Dictionary mapping server names to their URLs
+        Dictionary mapping server names to their URLs (with auth tokens applied)
     """
     global MCP_SERVERS
 
@@ -100,8 +118,30 @@ def load_mcp_servers() -> dict:
             if server.get("enabled", True):
                 name = server.get("name")
                 url = server.get("url")
-                if name and url:
-                    servers[name] = url
+                auth_type = server.get("auth_type", "token")
+
+                if not name or not url:
+                    continue
+
+                # Handle OAuth authentication
+                if auth_type == "oauth":
+                    # Get optional OAuth configuration
+                    oauth_config = server.get("oauth")
+
+                    # Get OAuth token (will prompt user to authenticate in browser if needed)
+                    # OAuth endpoints will be auto-discovered from the server URL if not provided
+                    access_token = get_token_for_server(name, url, oauth_config)
+                    if not access_token:
+                        print(f"  - {name}: OAuth authentication failed, skipping")
+                        continue
+
+                    # Add Bearer token to URL or use Authorization header
+                    # For simplicity, we'll append it as a query parameter
+                    separator = "&" if "?" in url else "?"
+                    url = f"{url}{separator}access_token={access_token}"
+
+                # Add to servers dict
+                servers[name] = url
 
         MCP_SERVERS = servers
         return servers

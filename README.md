@@ -95,7 +95,9 @@ OPENAI_API_KEY=sk-proj-...your-key-here...
 MODEL=gpt-4o-mini
 \`\`\`
 
-Edit \`mcp_servers.json\` to configure your MCP servers:
+Edit \`mcp_servers.json\` to configure your MCP servers. You can use either token-based or OAuth authentication.
+
+Token-based authentication (simple):
 
 \`\`\`json
 {
@@ -103,21 +105,78 @@ Edit \`mcp_servers.json\` to configure your MCP servers:
     {
       "name": "dexcom",
       "url": "https://apim.workato.com/your-workspace/dexcom-mcp?token=YOUR_TOKEN",
-      "enabled": true
+      "enabled": true,
+      "auth_type": "token"
     },
     {
       "name": "salesforce",
       "url": "https://apim.workato.com/your-workspace/salesforce-mcp?token=YOUR_TOKEN",
-      "enabled": true
+      "enabled": true,
+      "auth_type": "token"
     }
   ]
 }
 \`\`\`
 
-Each server needs:
+OAuth 2.0 authentication (browser-based) for servers that require OAuth:
+
+\`\`\`json
+{
+  "servers": [
+    {
+      "name": "sheets",
+      "url": "https://apim.workato.com/your-workspace/sheets-mcp",
+      "enabled": true,
+      "auth_type": "oauth"
+    }
+  ]
+}
+\`\`\`
+
+That's it! The OAuth endpoints will be automatically discovered from the server URL. When you run the chatbot, it will:
+
+1. Auto-discover OAuth endpoints (\`/oauth/authorize\` and \`/oauth/token\`)
+2. Check if you have a stored, valid OAuth token
+3. If not, open your browser for authentication
+4. Start a local server on port 8080 to receive the OAuth callback
+5. Exchange the authorization code for an access token
+6. Store the token securely in \`.mcp_tokens.json\` (excluded from Git)
+7. Automatically refresh tokens when they expire
+
+**Optional OAuth Configuration**
+
+If your server requires additional OAuth parameters, you can optionally provide them:
+
+\`\`\`json
+{
+  "name": "sheets",
+  "url": "https://apim.workato.com/your-workspace/sheets-mcp",
+  "enabled": true,
+  "auth_type": "oauth",
+  "oauth": {
+    "client_id": "your_client_id",
+    "client_secret": "your_client_secret",
+    "scopes": ["mcp.read", "mcp.write"],
+    "redirect_port": 8080,
+    "auth_url": "https://custom.auth.url/authorize",
+    "token_url": "https://custom.auth.url/token"
+  }
+}
+\`\`\`
+
+Configuration options for each server:
+
 - **name**: A short identifier (used to prefix tool names)
-- **url**: The full Workato MCP endpoint URL with authentication token
-- **enabled**: Set to `false` to temporarily disable a server
+- **url**: The full Workato MCP endpoint URL
+- **enabled**: Set to \`false\` to temporarily disable a server
+- **auth_type**: Either \`"token"\` (default) or \`"oauth"\`
+- **oauth** (optional): Additional OAuth configuration
+  - **client_id** (optional): OAuth client ID
+  - **client_secret** (optional): OAuth client secret
+  - **scopes** (optional): Array of OAuth scopes to request
+  - **redirect_port** (optional): Local port for OAuth callback (default: 8080)
+  - **auth_url** (optional): Custom authorization endpoint (auto-discovered if not provided)
+  - **token_url** (optional): Custom token endpoint (auto-discovered if not provided)
 
 ### Step 3: Install Dependencies
 

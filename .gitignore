@@ -1,2 +1,3 @@
 .env
 mcp_servers.json
+.mcp_tokens.json
