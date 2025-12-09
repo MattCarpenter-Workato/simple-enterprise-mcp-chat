@@ -7,16 +7,19 @@ A beginner-friendly Python chatbot that connects to Workato's Enterprise MCP ser
 ## What Does This Do?
 
 This chatbot can:
+
 1. **Connect** to multiple Workato MCP servers simultaneously
 2. **Discover** what tools are available from each server (like getting health data, CRM records, etc.)
 3. **Chat** with an AI that automatically uses those tools to answer your questions
 
 For example, if you connect to a Dexcom health MCP server, you could ask:
+
 - "What are my glucose values from last week?"
 - "Show me any alerts from yesterday"
 - "What devices do I have connected?"
 
 Or if you have multiple servers configured (e.g., Dexcom + Salesforce), you could ask:
+
 - "Show me my glucose data and my recent Salesforce contacts"
 
 The AI will automatically call the right tools from the right servers and give you a natural language response.
@@ -30,6 +33,7 @@ The AI will automatically call the right tools from the right servers and give y
 ### What is Workato Enterprise MCP?
 
 Workato provides hosted MCP servers that connect to various enterprise services (like healthcare APIs, CRMs, databases). You get:
+
 - **Security**: OAuth 2.0 and encrypted credentials
 - **Compliance**: Audit logging for regulations like HIPAA
 - **Reliability**: Rate limiting and automatic retries
@@ -37,6 +41,7 @@ Workato provides hosted MCP servers that connect to various enterprise services 
 ### What is Function Calling?
 
 When you ask the AI a question, it decides if it needs external data. If so, it:
+
 1. Tells us which tool to call
 2. We call the tool on the MCP server
 3. We send the result back to the AI
@@ -74,7 +79,7 @@ Before you start, you'll need:
 ### Step 1: Clone or Download
 
 \`\`\`bash
-git clone <your-repo-url>
+git clone YOUR_REPO_URL
 cd simple-mcp-chat
 \`\`\`
 
@@ -92,7 +97,6 @@ Edit \`.env\` with your OpenAI API key:
 \`\`\`env
 # Your OpenAI API key
 OPENAI_API_KEY=sk-proj-...your-key-here...
-
 # Which model to use (gpt-4o-mini is cheap and fast)
 MODEL=gpt-4o-mini
 \`\`\`
@@ -148,13 +152,14 @@ That's it! Just set `"auth_type": "oauth"` and everything else is automatic. Whe
 9. Automatically refresh tokens when they expire
 
 **Security Features:**
+
 - **PKCE (RFC 7636)**: Protects against authorization code interception attacks
 - **Dynamic Client Registration (RFC 7591)**: No manual OAuth client setup required
 - **Automatic OAuth Discovery**: Discovers endpoints from `.well-known/oauth-authorization-server`
 - **Token Storage**: Securely stores tokens separately from client credentials
 - **Bearer Token Authentication**: Uses standard `Authorization: Bearer <token>` headers
 
-**Optional OAuth Configuration**
+## Optional OAuth Configuration
 
 All OAuth parameters are optional and will be auto-discovered/auto-configured if not provided. You can override defaults if needed:
 
@@ -221,6 +226,7 @@ uv sync
 \`\`\`
 
 This installs:
+
 - `openai` - For talking to GPT
 - `python-dotenv` - For loading your .env file
 - `requests` - For making HTTP calls to the MCP server and OAuth authentication
