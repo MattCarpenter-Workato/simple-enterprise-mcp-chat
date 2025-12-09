@@ -1,2 +1,4 @@
 .env
 mcp_servers.json
+.mcp_tokens.json
+__pycache__/oauth_handler.cpython-312.pyc

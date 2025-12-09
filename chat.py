@@ -42,6 +42,7 @@ import json
 import requests
 from dotenv import load_dotenv
 from openai import OpenAI
+from oauth_handler import get_token_for_server
 
 # =============================================================================
 # CONFIGURATION
@@ -66,6 +67,10 @@ MCP_SERVERS_CONFIG = os.path.join(os.path.dirname(__file__), "mcp_servers.json")
 # This is populated by load_mcp_servers()
 MCP_SERVERS = {}
 
+# Dictionary to store server name -> auth headers
+# This is populated by load_mcp_servers() for OAuth servers
+MCP_SERVER_HEADERS = {}
+
 
 def load_mcp_servers() -> dict:
     """
@@ -77,13 +82,30 @@ def load_mcp_servers() -> dict:
             {
                 "name": "server_name",
                 "url": "https://...",
-                "enabled": true
+                "enabled": true,
+                "auth_type": "token"  // or "oauth"
             }
         ]
     }
 
+    For OAuth-enabled servers, the config should include:
+    {
+        "name": "server_name",
+        "url": "https://...",
+        "enabled": true,
+        "auth_type": "oauth",
+        "oauth": {
+            "auth_url": "https://...",
+            "token_url": "https://...",
+            "client_id": "...",
+            "client_secret": "...",
+            "scopes": ["scope1", "scope2"],
+            "redirect_port": 8080
+        }
+    }
+
     Returns:
-        Dictionary mapping server names to their URLs
+        Dictionary mapping server names to their URLs (with auth tokens applied)
     """
     global MCP_SERVERS
 
@@ -100,8 +122,30 @@ def load_mcp_servers() -> dict:
             if server.get("enabled", True):
                 name = server.get("name")
                 url = server.get("url")
-                if name and url:
-                    servers[name] = url
+                auth_type = server.get("auth_type", "token")
+
+                if not name or not url:
+                    continue
+
+                # Handle OAuth authentication
+                if auth_type == "oauth":
+                    # Get optional OAuth configuration
+                    oauth_config = server.get("oauth")
+
+                    # Get OAuth token (will prompt user to authenticate in browser if needed)
+                    # OAuth endpoints will be auto-discovered from the server URL if not provided
+                    access_token = get_token_for_server(name, url, oauth_config)
+                    if not access_token:
+                        print(f"  - {name}: OAuth authentication failed, skipping")
+                        continue
+
+                    # Store Authorization header for OAuth servers
+                    MCP_SERVER_HEADERS[name] = {
+                        "Authorization": f"Bearer {access_token}"
+                    }
+
+                # Add to servers dict
+                servers[name] = url
 
         MCP_SERVERS = servers
         return servers
@@ -115,7 +159,7 @@ def load_mcp_servers() -> dict:
 # MCP SERVER COMMUNICATION
 # =============================================================================
 
-def mcp_request(url: str, method: str, params: dict = None) -> dict: # type: ignore
+def mcp_request(url: str, method: str, params: dict = None, headers: dict | None = None) -> dict: # type: ignore
     """
     Make a JSON-RPC request to an MCP server.
 
@@ -130,6 +174,7 @@ def mcp_request(url: str, method: str, params: dict = None) -> dict: # type: ign
         url: The MCP server URL to send the request to
         method: The MCP method to call (e.g., "tools/list" or "tools/call")
         params: Optional dictionary of parameters for the method
+        headers: Optional dictionary of HTTP headers to include
 
     Returns:
         The JSON response from the server
@@ -154,7 +199,7 @@ def mcp_request(url: str, method: str, params: dict = None) -> dict: # type: ign
 
     # Send the request to the MCP server
     # timeout=30 means we'll wait up to 30 seconds for a response
-    response = requests.post(url, json=payload, timeout=30)
+    response = requests.post(url, json=payload, headers=headers, timeout=30)
 
     # Raise an error if the request failed (e.g., 404, 500 errors)
     response.raise_for_status()
@@ -213,8 +258,11 @@ def discover_tools() -> list:
     # Discover tools from each server
     for server_name, server_url in servers.items():
         try:
+            # Get auth headers if available
+            headers = MCP_SERVER_HEADERS.get(server_name)
+
             # Ask the MCP server what tools are available
-            result = mcp_request(server_url, "tools/list")
+            result = mcp_request(server_url, "tools/list", headers=headers)
 
             # Extract the tools array from the response
             tools = result.get("result", {}).get("tools", [])
@@ -301,8 +349,11 @@ def call_tool(name: str, arguments: dict) -> str:
 
         server_url = MCP_SERVERS[server_name]
 
+        # Get auth headers if available
+        headers = MCP_SERVER_HEADERS.get(server_name)
+
         # Make the MCP request to call the tool (using original tool name)
-        result = mcp_request(server_url, "tools/call", {"name": tool_name, "arguments": arguments})
+        result = mcp_request(server_url, "tools/call", {"name": tool_name, "arguments": arguments}, headers=headers)
 
         # Extract the content from the MCP response
         # MCP returns results in a specific format with "content" array
