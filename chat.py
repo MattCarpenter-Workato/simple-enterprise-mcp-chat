@@ -159,7 +159,7 @@ def load_mcp_servers() -> dict:
 # MCP SERVER COMMUNICATION
 # =============================================================================
 
-def mcp_request(url: str, method: str, params: dict = None, headers: dict = None) -> dict: # type: ignore
+def mcp_request(url: str, method: str, params: dict = None, headers: dict | None = None) -> dict: # type: ignore
     """
     Make a JSON-RPC request to an MCP server.
 
