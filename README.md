@@ -9,18 +9,18 @@ A beginner-friendly Python chatbot that connects to Workato's Enterprise MCP ser
 This chatbot can:
 
 1. **Connect** to multiple Workato MCP servers simultaneously
-2. **Discover** what tools are available from each server (like getting health data, CRM records, etc.)
+2. **Discover** what tools are available from each server (like CRM data, spreadsheets, project management, etc.)
 3. **Chat** with an AI that automatically uses those tools to answer your questions
 
-For example, if you connect to a Dexcom health MCP server, you could ask:
+For example, if you connect to a Salesforce MCP server, you could ask:
 
-- "What are my glucose values from last week?"
-- "Show me any alerts from yesterday"
-- "What devices do I have connected?"
+- "Show me my open opportunities over $50k"
+- "What deals closed last week?"
+- "Find contacts at Acme Corp"
 
-Or if you have multiple servers configured (e.g., Dexcom + Salesforce), you could ask:
+Or if you have multiple servers configured (e.g., Salesforce + Google Sheets), you could ask:
 
-- "Show me my glucose data and my recent Salesforce contacts"
+- "Pull my pipeline data and add it to my forecast spreadsheet"
 
 The AI will automatically call the right tools from the right servers and give you a natural language response.
 
@@ -32,10 +32,10 @@ The AI will automatically call the right tools from the right servers and give y
 
 ### What is Workato Enterprise MCP?
 
-Workato provides hosted MCP servers that connect to various enterprise services (like healthcare APIs, CRMs, databases). You get:
+Workato provides hosted MCP servers that connect to various enterprise services (like CRMs, databases, productivity tools). You get:
 
 - **Security**: OAuth 2.0 and encrypted credentials
-- **Compliance**: Audit logging for regulations like HIPAA
+- **Compliance**: Audit logging for enterprise regulations
 - **Reliability**: Rate limiting and automatic retries
 
 ### What is Function Calling?
@@ -109,14 +109,14 @@ Edit `mcp_servers.json` to configure your MCP servers. You can use either token-
 {
   "servers": [
     {
-      "name": "dexcom",
-      "url": "https://apim.workato.com/your-workspace/dexcom-mcp?token=YOUR_TOKEN",
+      "name": "salesforce",
+      "url": "https://apim.workato.com/your-workspace/salesforce-mcp?token=YOUR_TOKEN",
       "enabled": true,
       "auth_type": "token"
     },
     {
-      "name": "salesforce",
-      "url": "https://apim.workato.com/your-workspace/salesforce-mcp?token=YOUR_TOKEN",
+      "name": "jira",
+      "url": "https://apim.workato.com/your-workspace/jira-mcp?token=YOUR_TOKEN",
       "enabled": true,
       "auth_type": "token"
     }
@@ -234,8 +234,8 @@ You should see:
 
 ```
 MCP Chat - Discovering tools...
-  - dexcom: 5 tools
-  - salesforce: 3 tools
+  - salesforce: 5 tools
+  - jira: 3 tools
 
 Connected to 2 server(s) with 8 total tools
 Type 'quit' or 'exit' to end
@@ -260,7 +260,7 @@ MCP Chat - Discovering tools...
   [SUCCESS] Access token obtained
   [SUCCESS] Token stored for future use
 
-  - dexcom: 5 tools
+  - salesforce: 5 tools
   - sheets: 1 tools
 
 Connected to 2 server(s) with 6 total tools
@@ -275,7 +275,7 @@ Subsequent runs will use the stored token:
 ```
 MCP Chat - Discovering tools...
 Using stored token for sheets
-  - dexcom: 5 tools
+  - salesforce: 5 tools
   - sheets: 1 tools
 
 Connected to 2 server(s) with 6 total tools
@@ -298,8 +298,8 @@ You should see:
 
 ```
 LM Studio MCP Chat - Discovering tools...
-  - dexcom: 5 tools
-  - salesforce: 3 tools
+  - salesforce: 5 tools
+  - jira: 3 tools
 
 Connected to LM Studio at http://localhost:1234/v1
 Connected to 2 MCP server(s) with 8 total tools
@@ -322,7 +322,7 @@ LMSTUDIO_BASE_URL=http://localhost:1234/v1
 LMSTUDIO_MODEL=local-model
 ```
 
-Tool names are automatically prefixed with the server name (e.g., `dexcom__Get_Glucose_Values_v1`) to avoid conflicts between servers.
+Tool names are automatically prefixed with the server name (e.g., `salesforce__Query_Records`) to avoid conflicts between servers.
 
 ## How to Use
 
@@ -331,44 +331,62 @@ Just type natural language questions! The AI will figure out which tools to use.
 ### Example Conversation
 
 ```
-You: What glucose data do you have available?
+You: What open deals do I have over $100k?
 
-[Calling Get_Data_Range_v1...]
+[Calling salesforce__Query_Opportunities...]
 
-A: I have glucose data available from January 15, 2024 to January 22, 2024.
+A: You have 3 open opportunities over $100k:
+   1. Acme Corp - Enterprise License ($150,000) - Closing Jan 30
+   2. GlobalTech - Platform Deal ($125,000) - Closing Feb 15
+   3. Initech - Annual Contract ($110,000) - Closing Feb 28
 
-You: Show me my glucose readings from yesterday
+You: Create a Jira ticket to follow up on the Acme deal
 
-[Calling Get_Glucose_Values_v1...]
+[Calling jira__Create_Issue...]
 
-A: Here are your glucose readings from yesterday...
+A: Created SALES-142: "Follow up on Acme Corp Enterprise License opportunity"
 ```
 
 ## Example Prompts
 
 Here are some prompts you can try with different MCP tools:
 
-### Health Data (Dexcom)
+### CRM (Salesforce, HubSpot)
 
-- "What date range of data do you have?"
-- "Show me my glucose values from the last 24 hours"
-- "What was my average glucose yesterday?"
-- "Were there any high or low alerts this week?"
-- "What devices are connected to my account?"
-- "Show me any events I logged today"
+- "Show me all opportunities closing this month"
+- "Find contacts at companies in the healthcare industry"
+- "What's the total value of my pipeline?"
+- "List accounts I haven't contacted in 30 days"
+- "Create a new lead for John Smith at Acme Corp"
 
-### General Queries
+### Project Management (Jira, Asana)
 
-- "What tools do you have available?"
-- "Help me understand my recent health trends"
-- "Summarize my data from last week"
+- "What tickets are assigned to me?"
+- "Show me all high-priority bugs"
+- "Create a task to review the Q1 roadmap"
+- "What's the status of PROJECT-123?"
+- "List all issues updated this week"
+
+### Productivity (Google Sheets, Calendar)
+
+- "Add a row to my sales tracker spreadsheet"
+- "What meetings do I have tomorrow?"
+- "Find all spreadsheets with 'budget' in the name"
+- "Update cell B5 to show the new forecast"
+
+### Communication (Slack, Email)
+
+- "Send a message to #sales-team about the new pricing"
+- "Search for emails from our legal team"
+- "What unread messages do I have?"
 
 ### Multi-Tool Queries
 
 The AI can automatically chain multiple tool calls:
 
-- "Compare my glucose levels between Monday and Tuesday"
-- "Show me all alerts and their corresponding glucose values"
+- "Find my biggest deal and create a Jira ticket to prepare the proposal"
+- "Get my calendar for tomorrow and send a Slack summary to my team"
+- "Pull Q4 sales data and update the forecast spreadsheet"
 
 ## Troubleshooting
 
