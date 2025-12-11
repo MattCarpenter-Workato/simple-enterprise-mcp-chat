@@ -21,6 +21,12 @@ Requirements:
 Configuration:
 - LMSTUDIO_BASE_URL: The base URL for your LM Studio server (default: http://localhost:1234/v1)
 - LMSTUDIO_MODEL: The model to use (default: "local-model" - LM Studio ignores this)
+- SYSTEM_PROMPT: Optional default system prompt for guiding LLM behavior
+
+Usage:
+- python chat-lmstudio.py
+- python chat-lmstudio.py --system-prompt "You are a helpful medical assistant."
+- python chat-lmstudio.py -s "You are a concise assistant."
 
 Note: LM Studio uses whatever model you have loaded, so the model parameter is
 typically ignored. However, some setups may use it for routing.
@@ -30,6 +36,7 @@ typically ignored. However, some setups may use it for routing.
 import os
 import json
 import requests
+import argparse
 from dotenv import load_dotenv
 from openai import OpenAI
 from oauth_handler import get_token_for_server
@@ -54,6 +61,9 @@ client = OpenAI(
 # Get the model name from environment, with a default fallback
 # Note: LM Studio typically uses whatever model is loaded, this is often ignored
 MODEL = os.getenv("LMSTUDIO_MODEL", "local-model")
+
+# Get default system prompt from environment variable
+DEFAULT_SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", "")
 
 # Path to the MCP servers configuration file
 MCP_SERVERS_CONFIG = os.path.join(os.path.dirname(__file__), "mcp_servers.json")
@@ -370,7 +380,7 @@ def call_tool(name: str, arguments: dict) -> str:
 # MAIN CHAT LOOP
 # =============================================================================
 
-def chat():
+def chat(system_prompt: str = ""):
     """
     Main chatbot loop with MCP tool integration using LM Studio.
 
@@ -389,6 +399,9 @@ def chat():
     5. LM Studio processes the tool results and gives a final answer
     6. We display the answer to the user
 
+    Args:
+        system_prompt: Optional system prompt to guide the LLM's behavior
+
     Note: Not all models in LM Studio support function calling. For best results,
     use a model that explicitly supports tool/function calling (e.g., models with
     "function calling" or "tool use" in their description).
@@ -396,6 +409,10 @@ def chat():
     # Keep track of conversation history
     # This helps the AI remember previous messages
     messages = []
+
+    # Add system prompt if provided
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
 
     # Discover available MCP tools at startup
     print("LM Studio MCP Chat - Discovering tools...")
@@ -414,6 +431,8 @@ def chat():
 
     print("\nNote: Make sure you have a model loaded in LM Studio!")
     print("For best results, use a model that supports function calling.")
+    if system_prompt:
+        print(f"\nSystem prompt: {system_prompt}")
     print("Type 'quit' or 'exit' to end")
     print("-" * 40)
 
@@ -501,5 +520,30 @@ def chat():
 # =============================================================================
 
 if __name__ == "__main__":
-    # Run the chat when script is executed directly
-    chat()
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(
+        description="LM Studio MCP Chat - Chat with a local LLM using MCP tools",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python chat-lmstudio.py
+  python chat-lmstudio.py --system-prompt "You are a helpful medical assistant."
+  python chat-lmstudio.py -s "You are a concise assistant that answers in bullet points."
+
+Environment Variables:
+  SYSTEM_PROMPT          Default system prompt (overridden by --system-prompt)
+  LMSTUDIO_BASE_URL      LM Studio API URL (default: http://localhost:1234/v1)
+  LMSTUDIO_MODEL         Model name (default: local-model)
+        """
+    )
+    parser.add_argument(
+        "-s", "--system-prompt",
+        type=str,
+        default=DEFAULT_SYSTEM_PROMPT,
+        help="System prompt to guide the LLM's behavior (overrides SYSTEM_PROMPT env var)"
+    )
+
+    args = parser.parse_args()
+
+    # Run the chat with the specified system prompt
+    chat(system_prompt=args.system_prompt)

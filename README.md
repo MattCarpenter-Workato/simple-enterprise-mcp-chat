@@ -230,6 +230,19 @@ This installs:
 uv run python chat.py
 ```
 
+**With System Prompt:**
+
+```bash
+# Using command line argument
+uv run python chat.py --system-prompt "You are a helpful medical assistant."
+
+# Or use the short form
+uv run python chat.py -s "You are a concise assistant that answers in bullet points."
+
+# View all options
+uv run python chat.py --help
+```
+
 You should see:
 
 ```
@@ -320,7 +333,35 @@ LMSTUDIO_BASE_URL=http://localhost:1234/v1
 
 # Model name (usually ignored by LM Studio)
 LMSTUDIO_MODEL=local-model
+
+# Optional: Set a default system prompt to guide LLM behavior
+SYSTEM_PROMPT=You are a helpful assistant.
 ```
+
+**Using System Prompts:**
+
+You can customize the LLM's behavior by providing a system prompt either via environment variable or command line:
+
+```bash
+# Using environment variable (set in .env)
+uv run python chat-lmstudio.py
+
+# Using command line argument
+uv run python chat-lmstudio.py --system-prompt "You are a helpful medical assistant."
+
+# Or use the short form
+uv run python chat-lmstudio.py -s "You are a concise assistant that answers in bullet points."
+
+# View all options
+uv run python chat-lmstudio.py --help
+```
+
+System prompts are useful for:
+
+- Setting the tone and style of responses
+- Specializing the assistant for specific domains (medical, legal, technical, etc.)
+- Enforcing response formats (bullet points, brief answers, detailed explanations)
+- Adding custom instructions or constraints
 
 Tool names are automatically prefixed with the server name (e.g., `salesforce__Query_Records`) to avoid conflicts between servers.
 

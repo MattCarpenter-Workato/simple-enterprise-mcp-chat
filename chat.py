@@ -11,6 +11,11 @@ What this script does:
 3. Discovers what tools are available from each server
 4. Lets you chat with an AI that can use those tools to answer your questions
 
+Usage:
+- python chat.py
+- python chat.py --system-prompt "You are a helpful medical assistant."
+- python chat.py -s "You are a concise assistant."
+
 Key Concepts:
 - MCP (Model Context Protocol): A standard way for AI models to use external tools
 - JSON-RPC: A simple protocol for making remote procedure calls using JSON
@@ -40,6 +45,7 @@ correct MCP server.
 import os
 import json
 import requests
+import argparse
 from dotenv import load_dotenv
 from openai import OpenAI
 from oauth_handler import get_token_for_server
@@ -59,6 +65,9 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 # Get the model name from environment, with a default fallback
 # You can change this to gpt-4o, gpt-3.5-turbo, etc.
 MODEL = os.getenv("MODEL", "gpt-4o-mini")
+
+# Get default system prompt from environment variable
+DEFAULT_SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", "")
 
 # Path to the MCP servers configuration file
 MCP_SERVERS_CONFIG = os.path.join(os.path.dirname(__file__), "mcp_servers.json")
@@ -375,7 +384,7 @@ def call_tool(name: str, arguments: dict) -> str:
 # MAIN CHAT LOOP
 # =============================================================================
 
-def chat():
+def chat(system_prompt: str = ""):
     """
     Main chatbot loop with MCP tool integration.
 
@@ -393,10 +402,17 @@ def chat():
     4. If it requests a tool, we call it and send results back to OpenAI
     5. OpenAI processes the tool results and gives a final answer
     6. We display the answer to the user
+
+    Args:
+        system_prompt: Optional system prompt to guide the LLM's behavior
     """
     # Keep track of conversation history
     # This helps the AI remember previous messages
     messages = []
+
+    # Add system prompt if provided
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
 
     # Discover available MCP tools at startup
     print("MCP Chat - Discovering tools...")
@@ -412,6 +428,8 @@ def chat():
         else:
             print("(No tools discovered from MCP servers)")
 
+    if system_prompt:
+        print(f"\nSystem prompt: {system_prompt}")
     print("Type 'quit' or 'exit' to end")
     print("-" * 40)
 
@@ -494,5 +512,30 @@ def chat():
 # =============================================================================
 
 if __name__ == "__main__":
-    # Run the chat when script is executed directly
-    chat()
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(
+        description="MCP Chat - Chat with OpenAI using MCP tools",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python chat.py
+  python chat.py --system-prompt "You are a helpful medical assistant."
+  python chat.py -s "You are a concise assistant that answers in bullet points."
+
+Environment Variables:
+  OPENAI_API_KEY         Your OpenAI API key (required)
+  MODEL                  OpenAI model to use (default: gpt-4o-mini)
+  SYSTEM_PROMPT          Default system prompt (overridden by --system-prompt)
+        """
+    )
+    parser.add_argument(
+        "-s", "--system-prompt",
+        type=str,
+        default=DEFAULT_SYSTEM_PROMPT,
+        help="System prompt to guide the LLM's behavior (overrides SYSTEM_PROMPT env var)"
+    )
+
+    args = parser.parse_args()
+
+    # Run the chat with the specified system prompt
+    chat(system_prompt=args.system_prompt)
