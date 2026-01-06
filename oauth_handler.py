@@ -154,6 +154,9 @@ class OAuthHandler:
 
         print(f"  Registering OAuth client for {self.server_name}...")
 
+        if not self.registration_endpoint:
+            return
+
         try:
             # Dynamic Client Registration (RFC 7591)
             registration_data = {
@@ -424,7 +427,7 @@ class OAuthHandler:
             return token_response.get('access_token')
         except requests.RequestException as e:
             print(f"\nFailed to exchange authorization code: {e}")
-            if hasattr(e.response, 'text'):
+            if e.response is not None and e.response.text:
                 print(f"Response: {e.response.text}")
             return None
 
