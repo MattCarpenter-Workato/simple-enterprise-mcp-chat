@@ -54,6 +54,7 @@ simple-mcp-chat/
 ├── chat.py                    # Main application using OpenAI (heavily commented!)
 ├── chat-lmstudio.py           # LM Studio version for local LLMs
 ├── oauth_handler.py           # OAuth 2.0 authentication handler with PKCE
+├── troubleshoot_openai.py     # OpenAI connection troubleshooter
 ├── mcp_servers.json           # Your MCP server configs (don't commit this!)
 ├── mcp_servers.example.json   # Example server configuration
 ├── .mcp_tokens.json           # OAuth tokens storage (auto-generated, don't commit!)
@@ -430,6 +431,29 @@ The AI can automatically chain multiple tool calls:
 - "Pull Q4 sales data and update the forecast spreadsheet"
 
 ## Troubleshooting
+
+### OpenAI Connection Troubleshooter
+
+If you're having issues connecting to OpenAI, run the built-in troubleshooter:
+
+```bash
+uv run python troubleshoot_openai.py
+```
+
+This script diagnoses common issues including:
+
+- Network connectivity to OpenAI servers
+- DNS resolution
+- Firewall/proxy blocking
+- SSL/TLS issues
+- API key validation
+- Model access
+
+For more detailed output, use the verbose flag:
+
+```bash
+uv run python troubleshoot_openai.py --verbose
+```
 
 ### "No MCP servers configured"
 
