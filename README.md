@@ -595,8 +595,8 @@ TOKEN_LOG_FILE=logs/tokens.log
 Each API call is logged with the following information:
 
 ```
-2026-01-12 16:45:30 - MODEL=gpt-4o-mini | PROMPT=523 | COMPLETION=87 | TOTAL=610 | TYPE=initial_request
-2026-01-12 16:45:35 - MODEL=gpt-4o-mini | PROMPT=1250 | COMPLETION=45 | TOTAL=1295 | TYPE=tool_followup
+2026-01-12 16:45:30 - MODEL=gpt-4o-mini | PROMPT=523 | COMPLETION=87 | TOTAL=610 | TYPE=initial_request | USER_PROMPT=What were my glucose levels in the last 3 days? | TOOLS=dexcom__Get_Data_Range_VUA_, dexcom__Get_Glucose_Values_VUA_ | RESPONSE=[Tool calls only]
+2026-01-12 16:45:35 - MODEL=gpt-4o-mini | PROMPT=1250 | COMPLETION=45 | TOTAL=1295 | TYPE=tool_followup | USER_PROMPT=What were my glucose levels in the last 3 days? | TOOLS=none | RESPONSE=Based on the data from the last 3 days, your average glucose was 145 mg/dL with 68% time in range (70-180 mg/dL). You had 12 low readings below 70 mg/dL and 45 high readings...
 ```
 
 **Log Fields:**
@@ -605,6 +605,9 @@ Each API call is logged with the following information:
 - **COMPLETION**: Number of completion tokens (output)
 - **TOTAL**: Total tokens used
 - **TYPE**: Request type (`initial_request` or `tool_followup`)
+- **USER_PROMPT**: The user's question/prompt (truncated to 100 chars)
+- **TOOLS**: Comma-separated list of tools called, or "none"
+- **RESPONSE**: The assistant's response (truncated to 200 chars)
 
 **Analyzing Token Usage:**
 

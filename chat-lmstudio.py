@@ -613,10 +613,25 @@ def chat(system_prompt: str = ""):
                             f"total_tokens={response.usage.total_tokens}")
                 # Log token usage to separate token log file
                 if token_logger:
+                    # Extract user prompt (without the date injection prefix)
+                    user_prompt = user_input[:100] + "..." if len(user_input) > 100 else user_input
+                    user_prompt = user_prompt.replace("\n", " ").replace("|", "¦")  # Escape pipes and newlines
+
+                    # Check if tools were called
+                    tools_used = "none"
+                    if assistant_message.tool_calls:
+                        tools_used = ", ".join([tc.function.name for tc in assistant_message.tool_calls])
+
+                    # Extract assistant response (truncate if too long)
+                    response_text = assistant_message.content if assistant_message.content else "[Tool calls only]"
+                    response_text = response_text[:200] + "..." if len(response_text) > 200 else response_text
+                    response_text = response_text.replace("\n", " ").replace("|", "¦")  # Escape pipes and newlines
+
                     token_logger.info(f"MODEL={MODEL} | PROMPT={response.usage.prompt_tokens} | "
                                     f"COMPLETION={response.usage.completion_tokens} | "
                                     f"TOTAL={response.usage.total_tokens} | "
-                                    f"TYPE=initial_request")
+                                    f"TYPE=initial_request | USER_PROMPT={user_prompt} | TOOLS={tools_used} | "
+                                    f"RESPONSE={response_text}")
             logger.debug("=" * 80)
 
             # Handle tool calls
@@ -676,10 +691,25 @@ def chat(system_prompt: str = ""):
                                 f"total_tokens={response.usage.total_tokens}")
                     # Log token usage to separate token log file
                     if token_logger:
+                        # Extract user prompt (without the date injection prefix)
+                        user_prompt = user_input[:100] + "..." if len(user_input) > 100 else user_input
+                        user_prompt = user_prompt.replace("\n", " ").replace("|", "¦")  # Escape pipes and newlines
+
+                        # Check if additional tools were called
+                        tools_used = "none"
+                        if assistant_message.tool_calls:
+                            tools_used = ", ".join([tc.function.name for tc in assistant_message.tool_calls])
+
+                        # Extract assistant response (truncate if too long)
+                        response_text = assistant_message.content if assistant_message.content else "[Tool calls only]"
+                        response_text = response_text[:200] + "..." if len(response_text) > 200 else response_text
+                        response_text = response_text.replace("\n", " ").replace("|", "¦")  # Escape pipes and newlines
+
                         token_logger.info(f"MODEL={MODEL} | PROMPT={response.usage.prompt_tokens} | "
                                         f"COMPLETION={response.usage.completion_tokens} | "
                                         f"TOTAL={response.usage.total_tokens} | "
-                                        f"TYPE=tool_followup")
+                                        f"TYPE=tool_followup | USER_PROMPT={user_prompt} | TOOLS={tools_used} | "
+                                        f"RESPONSE={response_text}")
                 logger.debug("=" * 80)
 
             # Add final response to history and display to user
