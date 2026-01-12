@@ -366,6 +366,124 @@ System prompts are useful for:
 
 Tool names are automatically prefixed with the server name (e.g., `salesforce__Query_Records`) to avoid conflicts between servers.
 
+## Logging and Debugging
+
+The chatbot includes comprehensive logging to help you debug issues and understand what's happening behind the scenes.
+
+### Enabling Detailed Logging
+
+Add this to your `.env` file:
+
+```env
+# Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+LOG_LEVEL=DEBUG
+```
+
+**Logging Levels Explained:**
+
+- **DEBUG**: Shows all communication details including:
+  - Complete MCP JSON-RPC requests and responses
+  - Full OpenAI API requests and responses
+  - Tool discovery process
+  - Tool execution details
+  - Token usage statistics
+
+- **INFO**: Shows high-level operations:
+  - Tool calls and which tools are being invoked
+  - Server connection status
+  - OAuth authentication flow
+
+- **WARNING**: Shows only warnings and errors
+
+- **ERROR/CRITICAL**: Shows only errors
+
+### Example Debug Output
+
+When `LOG_LEVEL=DEBUG`, you'll see detailed logs like:
+
+```
+2026-01-12 10:30:45 - __main__ - DEBUG - ================================================================================
+2026-01-12 10:30:45 - __main__ - DEBUG - MCP REQUEST
+2026-01-12 10:30:45 - __main__ - DEBUG - URL: https://apim.workato.com/your-workspace/dexcom-mcp
+2026-01-12 10:30:45 - __main__ - DEBUG - Method: tools/call
+2026-01-12 10:30:45 - __main__ - DEBUG - Headers: {
+  "Authorization": "Bearer ***"
+}
+2026-01-12 10:30:45 - __main__ - DEBUG - Payload: {
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "Get_Glucose_Values_v1",
+    "arguments": {
+      "start_date_time": "2026-01-01T00:00:00",
+      "end_date_time": "2026-01-07T23:59:59"
+    }
+  }
+}
+2026-01-12 10:30:46 - __main__ - DEBUG - MCP RESPONSE
+2026-01-12 10:30:46 - __main__ - DEBUG - Status Code: 200
+2026-01-12 10:30:46 - __main__ - DEBUG - Response: {
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "Found 1,234 glucose readings..."
+      }
+    ]
+  }
+}
+2026-01-12 10:30:46 - __main__ - DEBUG - ================================================================================
+2026-01-12 10:30:46 - __main__ - DEBUG - ================================================================================
+2026-01-12 10:30:46 - __main__ - DEBUG - OPENAI REQUEST
+2026-01-12 10:30:46 - __main__ - DEBUG - Model: gpt-4o-mini
+2026-01-12 10:30:46 - __main__ - DEBUG - Messages: [
+  {
+    "role": "user",
+    "content": "What was my average glucose last week?"
+  },
+  {
+    "role": "tool",
+    "tool_call_id": "call_abc123",
+    "content": "Found 1,234 glucose readings..."
+  }
+]
+2026-01-12 10:30:47 - __main__ - DEBUG - OPENAI RESPONSE
+2026-01-12 10:30:47 - __main__ - DEBUG - Finish Reason: stop
+2026-01-12 10:30:47 - __main__ - DEBUG - Content: Your average glucose last week was 125 mg/dL...
+2026-01-12 10:30:47 - __main__ - DEBUG - Usage: prompt_tokens=523, completion_tokens=87, total_tokens=610
+2026-01-12 10:30:47 - __main__ - DEBUG - ================================================================================
+```
+
+### What Gets Logged
+
+**MCP Server Communication:**
+- Request URL and method
+- Request payload (JSON-RPC 2.0 format)
+- Authorization headers (masked for security)
+- Response status codes
+- Complete response data
+
+**OpenAI LLM Communication:**
+- Model being used
+- Complete message history sent to OpenAI
+- Available tools and their names
+- OpenAI's response content
+- Tool calls requested by OpenAI
+- Token usage (prompt, completion, and total tokens)
+
+**Tool Operations:**
+- Tool discovery from each server
+- Tool names and descriptions
+- Tool execution with arguments
+- Tool results (truncated if very long)
+
+### Security Note
+
+Authorization tokens in the logs are automatically masked to show `Bearer ***` instead of the actual token value. Your API keys remain secure even with DEBUG logging enabled.
+
 ## How to Use
 
 Just type natural language questions! The AI will figure out which tools to use.

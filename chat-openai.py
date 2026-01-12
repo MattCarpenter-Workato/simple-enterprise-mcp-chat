@@ -46,6 +46,7 @@ import os
 import json
 import requests
 import argparse
+import logging
 from dotenv import load_dotenv
 from openai import OpenAI
 from oauth_handler import get_token_for_server
@@ -57,6 +58,17 @@ from oauth_handler import get_token_for_server
 # Load environment variables from .env file
 # This keeps sensitive data like API keys out of your code
 load_dotenv()
+
+# Configure logging based on environment variable
+# Logging levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
+# DEBUG will show all MCP and OpenAI communication details
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 # Initialize the OpenAI client
 # This is what we'll use to send messages to GPT and get responses
@@ -206,6 +218,16 @@ def mcp_request(url: str, method: str, params: dict = None, headers: dict | None
         "params": params or {}
     }
 
+    # Log the MCP request (hide authorization headers for security)
+    logger.debug("=" * 80)
+    logger.debug("MCP REQUEST")
+    logger.debug(f"URL: {url}")
+    logger.debug(f"Method: {method}")
+    if headers:
+        safe_headers = {k: ("Bearer ***" if k == "Authorization" else v) for k, v in headers.items()}
+        logger.debug(f"Headers: {json.dumps(safe_headers, indent=2)}")
+    logger.debug(f"Payload: {json.dumps(payload, indent=2)}")
+
     # Send the request to the MCP server
     # timeout=30 means we'll wait up to 30 seconds for a response
     response = requests.post(url, json=payload, headers=headers, timeout=30)
@@ -214,7 +236,15 @@ def mcp_request(url: str, method: str, params: dict = None, headers: dict | None
     response.raise_for_status()
 
     # Parse and return the JSON response
-    return response.json()
+    response_data = response.json()
+
+    # Log the MCP response
+    logger.debug("MCP RESPONSE")
+    logger.debug(f"Status Code: {response.status_code}")
+    logger.debug(f"Response: {json.dumps(response_data, indent=2)}")
+    logger.debug("=" * 80)
+
+    return response_data
 
 
 # =============================================================================
@@ -267,6 +297,8 @@ def discover_tools() -> list:
     # Discover tools from each server
     for server_name, server_url in servers.items():
         try:
+            logger.info(f"Discovering tools from server: {server_name}")
+
             # Get auth headers if available
             headers = MCP_SERVER_HEADERS.get(server_name)
 
@@ -275,6 +307,8 @@ def discover_tools() -> list:
 
             # Extract the tools array from the response
             tools = result.get("result", {}).get("tools", [])
+
+            logger.debug(f"Server {server_name} returned {len(tools)} tools")
 
             # Convert MCP tools to OpenAI function format
             for tool in tools:
@@ -295,6 +329,8 @@ def discover_tools() -> list:
                 # e.g., "Get_Glucose_Values_v1" -> "dexcom__Get_Glucose_Values_v1"
                 prefixed_name = f"{server_name}__{tool['name']}"
 
+                logger.debug(f"  Discovered tool: {prefixed_name}")
+
                 # Build the tool definition in OpenAI's format
                 openai_tool = {
                     "type": "function",
@@ -307,10 +343,12 @@ def discover_tools() -> list:
                 openai_tools.append(openai_tool)
 
             print(f"  - {server_name}: {len(tools)} tools")
+            logger.info(f"Successfully discovered {len(tools)} tools from {server_name}")
 
         except Exception as e:
             # If a server fails, print error but continue with others
             print(f"  - {server_name}: Failed to discover tools: {e}")
+            logger.error(f"Failed to discover tools from {server_name}: {e}", exc_info=True)
 
     return openai_tools
 
@@ -461,9 +499,32 @@ def chat(system_prompt: str = ""):
             if tools:
                 kwargs["tools"] = tools
 
+            # Log the OpenAI request
+            logger.debug("=" * 80)
+            logger.debug("OPENAI REQUEST")
+            logger.debug(f"Model: {MODEL}")
+            logger.debug(f"Messages: {json.dumps(messages, indent=2)}")
+            if tools:
+                logger.debug(f"Tools: {len(tools)} tools available")
+                logger.debug(f"Tool Names: {[t['function']['name'] for t in tools]}")
+
             # Send to OpenAI and get response
             response = client.chat.completions.create(**kwargs)
             assistant_message = response.choices[0].message
+
+            # Log the OpenAI response
+            logger.debug("OPENAI RESPONSE")
+            logger.debug(f"Finish Reason: {response.choices[0].finish_reason}")
+            if assistant_message.content:
+                logger.debug(f"Content: {assistant_message.content}")
+            if assistant_message.tool_calls:
+                logger.debug(f"Tool Calls: {len(assistant_message.tool_calls)}")
+                for tc in assistant_message.tool_calls:
+                    logger.debug(f"  - {tc.function.name}: {tc.function.arguments}")
+            logger.debug(f"Usage: prompt_tokens={response.usage.prompt_tokens}, "
+                        f"completion_tokens={response.usage.completion_tokens}, "
+                        f"total_tokens={response.usage.total_tokens}")
+            logger.debug("=" * 80)
 
             # Handle tool calls
             # OpenAI might request one or more tools to be called
@@ -481,8 +542,15 @@ def chat(system_prompt: str = ""):
                     # Show the user what tool is being called
                     print(f"\n[Calling {name}...]")
 
+                    # Log tool call details
+                    logger.info(f"Tool Call: {name}")
+                    logger.debug(f"Tool Arguments: {json.dumps(args, indent=2)}")
+
                     # Call the tool on the MCP server
                     result = call_tool(name, args)
+
+                    # Log tool result
+                    logger.debug(f"Tool Result: {result[:500]}..." if len(result) > 500 else f"Tool Result: {result}")
 
                     # Add tool result to conversation history
                     # OpenAI needs this to generate its response
@@ -492,9 +560,27 @@ def chat(system_prompt: str = ""):
                         "content": result
                     })
 
+                # Log the follow-up request to OpenAI
+                logger.debug("=" * 80)
+                logger.debug("OPENAI FOLLOW-UP REQUEST (with tool results)")
+                logger.debug(f"Model: {MODEL}")
+                logger.debug(f"Messages: {json.dumps(messages, indent=2)}")
+
                 # Get OpenAI's next response (might be another tool call or final answer)
                 response = client.chat.completions.create(**kwargs)
                 assistant_message = response.choices[0].message
+
+                # Log the follow-up response
+                logger.debug("OPENAI FOLLOW-UP RESPONSE")
+                logger.debug(f"Finish Reason: {response.choices[0].finish_reason}")
+                if assistant_message.content:
+                    logger.debug(f"Content: {assistant_message.content}")
+                if assistant_message.tool_calls:
+                    logger.debug(f"Additional Tool Calls: {len(assistant_message.tool_calls)}")
+                logger.debug(f"Usage: prompt_tokens={response.usage.prompt_tokens}, "
+                            f"completion_tokens={response.usage.completion_tokens}, "
+                            f"total_tokens={response.usage.total_tokens}")
+                logger.debug("=" * 80)
 
             # Add final response to history and display to user
             messages.append({"role": "assistant", "content": assistant_message.content})
