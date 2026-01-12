@@ -503,7 +503,21 @@ def chat(system_prompt: str = ""):
             logger.debug("=" * 80)
             logger.debug("OPENAI REQUEST")
             logger.debug(f"Model: {MODEL}")
-            logger.debug(f"Messages: {json.dumps(messages, indent=2)}")
+
+            # Safely log messages by converting them to dicts if needed
+            try:
+                # Filter out only user and system messages for initial request logging
+                safe_messages = []
+                for msg in messages:
+                    if isinstance(msg, dict):
+                        safe_messages.append(msg)
+                    else:
+                        # Convert OpenAI message objects to dict representation
+                        safe_messages.append({"role": msg.role, "content": str(msg.content)})
+                logger.debug(f"Messages: {json.dumps(safe_messages, indent=2)}")
+            except Exception as e:
+                logger.debug(f"Messages: {len(messages)} messages (could not serialize: {e})")
+
             if tools:
                 logger.debug(f"Tools: {len(tools)} tools available")
                 logger.debug(f"Tool Names: {[t['function']['name'] for t in tools]}")
@@ -564,7 +578,7 @@ def chat(system_prompt: str = ""):
                 logger.debug("=" * 80)
                 logger.debug("OPENAI FOLLOW-UP REQUEST (with tool results)")
                 logger.debug(f"Model: {MODEL}")
-                logger.debug(f"Messages: {json.dumps(messages, indent=2)}")
+                logger.debug(f"Number of messages in history: {len(messages)}")
 
                 # Get OpenAI's next response (might be another tool call or final answer)
                 response = client.chat.completions.create(**kwargs)
