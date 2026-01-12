@@ -57,12 +57,19 @@ load_dotenv()
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 LOG_FILE = os.getenv("LOG_FILE", "")  # Path to log file (empty = no file logging)
 LOG_TO_CONSOLE = os.getenv("LOG_TO_CONSOLE", "true").lower() == "true"  # Whether to log to console
+TOKEN_LOG_FILE = os.getenv("TOKEN_LOG_FILE", "")  # Separate log file for token usage tracking
 
 # Create logs directory if logging to file
 if LOG_FILE:
     log_dir = os.path.dirname(LOG_FILE)
     if log_dir and not os.path.exists(log_dir):
         os.makedirs(log_dir, exist_ok=True)
+
+# Create logs directory for token log file
+if TOKEN_LOG_FILE:
+    token_log_dir = os.path.dirname(TOKEN_LOG_FILE)
+    if token_log_dir and not os.path.exists(token_log_dir):
+        os.makedirs(token_log_dir, exist_ok=True)
 
 # Configure logging handlers
 handlers = []
@@ -92,6 +99,20 @@ logging.basicConfig(
     force=True  # Override any existing configuration
 )
 logger = logging.getLogger(__name__)
+
+# Configure separate token usage logger
+token_logger = None
+if TOKEN_LOG_FILE:
+    token_logger = logging.getLogger("token_usage")
+    token_logger.setLevel(logging.INFO)
+    token_logger.propagate = False  # Don't propagate to root logger
+
+    token_handler = logging.FileHandler(TOKEN_LOG_FILE, mode='a', encoding='utf-8')
+    token_handler.setFormatter(logging.Formatter(
+        '%(asctime)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    ))
+    token_logger.addHandler(token_handler)
 
 # Initialize the OpenAI client pointing to LM Studio's local server
 # LM Studio provides an OpenAI-compatible API at http://localhost:1234/v1
@@ -590,6 +611,12 @@ def chat(system_prompt: str = ""):
                 logger.debug(f"Usage: prompt_tokens={response.usage.prompt_tokens}, "
                             f"completion_tokens={response.usage.completion_tokens}, "
                             f"total_tokens={response.usage.total_tokens}")
+                # Log token usage to separate token log file
+                if token_logger:
+                    token_logger.info(f"MODEL={MODEL} | PROMPT={response.usage.prompt_tokens} | "
+                                    f"COMPLETION={response.usage.completion_tokens} | "
+                                    f"TOTAL={response.usage.total_tokens} | "
+                                    f"TYPE=initial_request")
             logger.debug("=" * 80)
 
             # Handle tool calls
@@ -647,6 +674,12 @@ def chat(system_prompt: str = ""):
                     logger.debug(f"Usage: prompt_tokens={response.usage.prompt_tokens}, "
                                 f"completion_tokens={response.usage.completion_tokens}, "
                                 f"total_tokens={response.usage.total_tokens}")
+                    # Log token usage to separate token log file
+                    if token_logger:
+                        token_logger.info(f"MODEL={MODEL} | PROMPT={response.usage.prompt_tokens} | "
+                                        f"COMPLETION={response.usage.completion_tokens} | "
+                                        f"TOTAL={response.usage.total_tokens} | "
+                                        f"TYPE=tool_followup")
                 logger.debug("=" * 80)
 
             # Add final response to history and display to user

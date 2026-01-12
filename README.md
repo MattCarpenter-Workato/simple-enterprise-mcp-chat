@@ -575,6 +575,61 @@ tail -n 50 logs/chat.log
 grep "ERROR" logs/chat.log
 ```
 
+### Token Usage Tracking
+
+The chatbot can maintain a separate log file specifically for tracking token usage across all API calls. This is invaluable for:
+- Monitoring API costs
+- Optimizing prompts and system messages
+- Identifying expensive queries
+- Tracking usage over time
+
+**Configuration:**
+
+```env
+# Enable token usage logging
+TOKEN_LOG_FILE=logs/tokens.log
+```
+
+**Token Log Format:**
+
+Each API call is logged with the following information:
+
+```
+2026-01-12 16:45:30 - MODEL=gpt-4o-mini | PROMPT=523 | COMPLETION=87 | TOTAL=610 | TYPE=initial_request
+2026-01-12 16:45:35 - MODEL=gpt-4o-mini | PROMPT=1250 | COMPLETION=45 | TOTAL=1295 | TYPE=tool_followup
+```
+
+**Log Fields:**
+- **MODEL**: The model being used (e.g., `gpt-4o-mini`, `gpt-4o`, `local-model`)
+- **PROMPT**: Number of prompt tokens (input)
+- **COMPLETION**: Number of completion tokens (output)
+- **TOTAL**: Total tokens used
+- **TYPE**: Request type (`initial_request` or `tool_followup`)
+
+**Analyzing Token Usage:**
+
+```bash
+# View all token usage
+cat logs/tokens.log
+
+# Calculate total tokens used
+awk -F'TOTAL=' '{sum+=$2} END {print "Total tokens:", sum}' logs/tokens.log | awk '{print $1, $2, $3}'
+
+# Find most expensive queries
+sort -t'=' -k5 -nr logs/tokens.log | head -10
+
+# Count API calls per day
+grep "2026-01-12" logs/tokens.log | wc -l
+```
+
+**Cost Calculation Example:**
+
+For OpenAI pricing (as of example):
+- GPT-4o-mini: ~$0.15/1M input tokens, ~$0.60/1M output tokens
+- GPT-4o: ~$2.50/1M input tokens, ~$10.00/1M output tokens
+
+Use the token logs to estimate costs and optimize usage.
+
 ### Security Note
 
 Authorization tokens in the logs are automatically masked to show `Bearer ***` instead of the actual token value. Your API keys remain secure even with DEBUG logging enabled.
