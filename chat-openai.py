@@ -47,6 +47,7 @@ import json
 import requests
 import argparse
 import logging
+from datetime import datetime
 from dotenv import load_dotenv
 from openai import OpenAI
 from oauth_handler import get_token_for_server
@@ -111,6 +112,9 @@ MODEL = os.getenv("MODEL", "gpt-4o-mini")
 
 # Get default system prompt from environment variable
 DEFAULT_SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", "")
+
+# Whether to automatically inject current date/time into each user message
+INJECT_CURRENT_DATE = os.getenv("INJECT_CURRENT_DATE", "true").lower() == "true"
 
 # Path to the MCP servers configuration file
 MCP_SERVERS_CONFIG = os.path.join(os.path.dirname(__file__), "mcp_servers.json")
@@ -516,8 +520,21 @@ def chat(system_prompt: str = ""):
             print("Goodbye!")
             break
 
+        # Optionally add current date/time context to user message
+        # This ensures the LLM always knows the current date for time-based queries
+        if INJECT_CURRENT_DATE:
+            current_datetime = datetime.now()
+            current_date_str = current_datetime.strftime("%Y-%m-%d")
+            current_time_str = current_datetime.strftime("%H:%M:%S")
+            current_datetime_formatted = current_datetime.strftime("%Y-%m-%dT%H:%M:%S")
+
+            # Prepend date context to user message
+            user_message_with_context = f"[Current date and time: {current_date_str} {current_time_str} (formatted for API: {current_datetime_formatted})]\n\n{user_input}"
+        else:
+            user_message_with_context = user_input
+
         # Add user message to conversation history
-        messages.append({"role": "user", "content": user_input})
+        messages.append({"role": "user", "content": user_message_with_context})
 
         try:
             # Build the request to OpenAI

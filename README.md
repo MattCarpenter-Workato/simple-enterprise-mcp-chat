@@ -366,9 +366,42 @@ System prompts are useful for:
 
 Tool names are automatically prefixed with the server name (e.g., `salesforce__Query_Records`) to avoid conflicts between servers.
 
+## Current Date/Time Injection
+
+The chatbot automatically injects the current date and time into each user message to ensure the LLM always knows the current date for time-based queries. This is especially important for applications like CGM data analysis where "last 3 days" or "this week" needs to be calculated from today's date.
+
+**Configuration:**
+
+```env
+# Automatically inject current date/time (recommended)
+INJECT_CURRENT_DATE=true
+```
+
+**How it works:**
+
+Each user message is automatically prepended with the current date and time:
+
+```
+[Current date and time: 2026-01-12 16:30:45 (formatted for API: 2026-01-12T16:30:45)]
+
+What were my glucose levels in the last 3 days?
+```
+
+This ensures the LLM:
+- Knows the exact current date (not relying on its knowledge cutoff date)
+- Can accurately calculate relative dates ("last 3 days", "this week", etc.)
+- Uses the correct date format for API calls (YYYY-MM-DDTHH:MM:SS)
+
+**When to disable:**
+
+Set `INJECT_CURRENT_DATE=false` if:
+- You're testing with historical conversations
+- The current date is not relevant to your use case
+- You want to manually specify dates in your prompts
+
 ## Logging and Debugging
 
-The chatbot includes comprehensive logging to help you debug issues and understand what's happening behind the scenes.
+Both the OpenAI and LM Studio versions include comprehensive logging to help you debug issues and understand what's happening behind the scenes.
 
 ### Enabling Detailed Logging
 
@@ -420,10 +453,10 @@ LOG_TO_CONSOLE=true
 
 - **DEBUG**: Shows all communication details including:
   - Complete MCP JSON-RPC requests and responses
-  - Full OpenAI API requests and responses
+  - Full OpenAI/LM Studio API requests and responses
   - Tool discovery process
   - Tool execution details
-  - Token usage statistics
+  - Token usage statistics (when available)
 
 - **INFO**: Shows high-level operations:
   - Tool calls and which tools are being invoked
@@ -503,13 +536,13 @@ When `LOG_LEVEL=DEBUG`, you'll see detailed logs like:
 - Response status codes
 - Complete response data
 
-**OpenAI LLM Communication:**
+**OpenAI/LM Studio Communication:**
 - Model being used
-- Complete message history sent to OpenAI
+- Complete message history sent to the LLM
 - Available tools and their names
-- OpenAI's response content
-- Tool calls requested by OpenAI
-- Token usage (prompt, completion, and total tokens)
+- LLM's response content
+- Tool calls requested by the LLM
+- Token usage (prompt, completion, and total tokens - when available)
 
 **Tool Operations:**
 - Tool discovery from each server
