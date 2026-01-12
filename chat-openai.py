@@ -615,10 +615,18 @@ def chat(system_prompt: str = ""):
                 user_prompt = user_input[:100] + "..." if len(user_input) > 100 else user_input
                 user_prompt = user_prompt.replace("\n", " ").replace("|", "¦")  # Escape pipes and newlines
 
-                # Check if tools were called
+                # Check if tools were called and extract MCP servers used
                 tools_used = "none"
+                servers_used = "none"
                 if assistant_message.tool_calls:
                     tools_used = ", ".join([tc.function.name for tc in assistant_message.tool_calls])
+                    # Extract unique server names from tool names (format: servername__toolname)
+                    server_names = set()
+                    for tc in assistant_message.tool_calls:
+                        if "__" in tc.function.name:
+                            server_name = tc.function.name.split("__")[0]
+                            server_names.add(server_name)
+                    servers_used = ", ".join(sorted(server_names)) if server_names else "none"
 
                 # Extract assistant response (truncate if too long)
                 response_text = assistant_message.content if assistant_message.content else "[Tool calls only]"
@@ -628,7 +636,8 @@ def chat(system_prompt: str = ""):
                 token_logger.info(f"MODEL={MODEL} | PROMPT={response.usage.prompt_tokens} | "
                                 f"COMPLETION={response.usage.completion_tokens} | "
                                 f"TOTAL={response.usage.total_tokens} | "
-                                f"TYPE=initial_request | USER_PROMPT={user_prompt} | TOOLS={tools_used} | "
+                                f"TYPE=initial_request | USER_PROMPT={user_prompt} | "
+                                f"SERVERS={servers_used} | TOOLS={tools_used} | "
                                 f"RESPONSE={response_text}")
 
             # Handle tool calls
@@ -693,10 +702,18 @@ def chat(system_prompt: str = ""):
                     user_prompt = user_input[:100] + "..." if len(user_input) > 100 else user_input
                     user_prompt = user_prompt.replace("\n", " ").replace("|", "¦")  # Escape pipes and newlines
 
-                    # Check if additional tools were called
+                    # Check if additional tools were called and extract MCP servers used
                     tools_used = "none"
+                    servers_used = "none"
                     if assistant_message.tool_calls:
                         tools_used = ", ".join([tc.function.name for tc in assistant_message.tool_calls])
+                        # Extract unique server names from tool names (format: servername__toolname)
+                        server_names = set()
+                        for tc in assistant_message.tool_calls:
+                            if "__" in tc.function.name:
+                                server_name = tc.function.name.split("__")[0]
+                                server_names.add(server_name)
+                        servers_used = ", ".join(sorted(server_names)) if server_names else "none"
 
                     # Extract assistant response (truncate if too long)
                     response_text = assistant_message.content if assistant_message.content else "[Tool calls only]"
@@ -706,7 +723,8 @@ def chat(system_prompt: str = ""):
                     token_logger.info(f"MODEL={MODEL} | PROMPT={response.usage.prompt_tokens} | "
                                     f"COMPLETION={response.usage.completion_tokens} | "
                                     f"TOTAL={response.usage.total_tokens} | "
-                                    f"TYPE=tool_followup | USER_PROMPT={user_prompt} | TOOLS={tools_used} | "
+                                    f"TYPE=tool_followup | USER_PROMPT={user_prompt} | "
+                                    f"SERVERS={servers_used} | TOOLS={tools_used} | "
                                     f"RESPONSE={response_text}")
 
             # Add final response to history and display to user
