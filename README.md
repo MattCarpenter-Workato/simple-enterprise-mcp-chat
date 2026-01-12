@@ -372,12 +372,49 @@ The chatbot includes comprehensive logging to help you debug issues and understa
 
 ### Enabling Detailed Logging
 
-Add this to your `.env` file:
+The chatbot supports flexible logging to both console and file. Add these to your `.env` file:
 
 ```env
 # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
 LOG_LEVEL=DEBUG
+
+# Log to file (optional)
+LOG_FILE=logs/chat.log
+
+# Show logs in terminal (true/false)
+LOG_TO_CONSOLE=true
 ```
+
+**Configuration Options:**
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `LOG_LEVEL` | Logging detail level | `DEBUG`, `INFO`, `WARNING` |
+| `LOG_FILE` | Path to log file (leave empty to disable) | `logs/chat.log` |
+| `LOG_TO_CONSOLE` | Show logs in terminal | `true` or `false` |
+
+**Common Configurations:**
+
+1. **Debug to file only (clean terminal):**
+   ```env
+   LOG_LEVEL=DEBUG
+   LOG_FILE=logs/chat.log
+   LOG_TO_CONSOLE=false
+   ```
+
+2. **Debug to both file and terminal:**
+   ```env
+   LOG_LEVEL=DEBUG
+   LOG_FILE=logs/chat.log
+   LOG_TO_CONSOLE=true
+   ```
+
+3. **Console only (no file):**
+   ```env
+   LOG_LEVEL=DEBUG
+   LOG_FILE=
+   LOG_TO_CONSOLE=true
+   ```
 
 **Logging Levels Explained:**
 
@@ -479,6 +516,31 @@ When `LOG_LEVEL=DEBUG`, you'll see detailed logs like:
 - Tool names and descriptions
 - Tool execution with arguments
 - Tool results (truncated if very long)
+
+### Log Files
+
+When `LOG_FILE` is set, logs are saved to the specified file:
+
+- The `logs/` directory is automatically created if it doesn't exist
+- Logs are appended to the file (not overwritten)
+- The `logs/` directory is excluded from Git (already in `.gitignore`)
+- You can use any path: `logs/chat.log`, `logs/debug-2026-01-12.log`, etc.
+
+**Viewing Log Files:**
+
+```bash
+# View entire log file
+cat logs/chat.log
+
+# Follow log in real-time (like tail -f)
+tail -f logs/chat.log
+
+# View last 50 lines
+tail -n 50 logs/chat.log
+
+# Search logs for errors
+grep "ERROR" logs/chat.log
+```
 
 ### Security Note
 

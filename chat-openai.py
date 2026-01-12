@@ -63,10 +63,41 @@ load_dotenv()
 # Logging levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
 # DEBUG will show all MCP and OpenAI communication details
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+LOG_FILE = os.getenv("LOG_FILE", "")  # Path to log file (empty = no file logging)
+LOG_TO_CONSOLE = os.getenv("LOG_TO_CONSOLE", "true").lower() == "true"  # Whether to log to console
+
+# Create logs directory if logging to file
+if LOG_FILE:
+    log_dir = os.path.dirname(LOG_FILE)
+    if log_dir and not os.path.exists(log_dir):
+        os.makedirs(log_dir, exist_ok=True)
+
+# Configure logging handlers
+handlers = []
+
+# Add file handler if LOG_FILE is specified
+if LOG_FILE:
+    file_handler = logging.FileHandler(LOG_FILE, mode='a', encoding='utf-8')
+    file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    ))
+    handlers.append(file_handler)
+
+# Add console handler if LOG_TO_CONSOLE is true
+if LOG_TO_CONSOLE:
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    ))
+    handlers.append(console_handler)
+
+# Configure logging with handlers
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO),
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    handlers=handlers,
+    force=True  # Override any existing configuration
 )
 logger = logging.getLogger(__name__)
 
