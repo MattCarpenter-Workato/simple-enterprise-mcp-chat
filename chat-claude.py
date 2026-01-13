@@ -484,7 +484,19 @@ def chat(system_prompt: str = ""):
             # Handle tool calls
             while response.stop_reason == "tool_use":
                 # Add Claude's response to history (includes text and tool_use blocks)
-                messages.append({"role": "assistant", "content": response.content})
+                # Convert content blocks to serializable format
+                serializable_content = []
+                for block in response.content:
+                    if block.type == "text":
+                        serializable_content.append({"type": "text", "text": block.text})
+                    elif block.type == "tool_use":
+                        serializable_content.append({
+                            "type": "tool_use",
+                            "id": block.id,
+                            "name": block.name,
+                            "input": block.input
+                        })
+                messages.append({"role": "assistant", "content": serializable_content})
 
                 # Process each tool use
                 tool_results = []
@@ -573,7 +585,19 @@ def chat(system_prompt: str = ""):
             final_text = "\n".join(text_blocks)
 
             # Add final response to history
-            messages.append({"role": "assistant", "content": response.content})
+            # Convert content blocks to serializable format
+            serializable_content = []
+            for block in response.content:
+                if block.type == "text":
+                    serializable_content.append({"type": "text", "text": block.text})
+                elif block.type == "tool_use":
+                    serializable_content.append({
+                        "type": "tool_use",
+                        "id": block.id,
+                        "name": block.name,
+                        "input": block.input
+                    })
+            messages.append({"role": "assistant", "content": serializable_content})
 
             print(f"\nAssistant: {final_text}")
 
