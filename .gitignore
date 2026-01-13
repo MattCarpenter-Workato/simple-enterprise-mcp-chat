@@ -7,3 +7,7 @@ __pycache__/oauth_handler.cpython-312.pyc
 # Log files
 logs/
 *.log
+.claude/settings.json
+tmpclaude-5624-cwd
+.gitignore
+tmpclaude-41fb-cwd
