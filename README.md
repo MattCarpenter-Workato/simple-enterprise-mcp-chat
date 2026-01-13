@@ -5,6 +5,7 @@ A beginner-friendly Python chatbot that connects to Workato's Enterprise MCP ser
 **Multiple AI Options Available:**
 - **OpenAI** (GPT-4, GPT-4o, GPT-3.5) - Cloud-based, powerful, easy to use
 - **Claude** (Anthropic) - Advanced reasoning, long context, thoughtful responses
+- **Ollama** - Run open-source LLMs locally (llama3.2, mistral, qwen2.5, etc.)
 - **LM Studio** - Run local LLMs for privacy and cost savings
 
 ## What Does This Do?
@@ -56,6 +57,7 @@ When you ask the AI a question, it decides if it needs external data. If so, it:
 simple-mcp-chat/
 ├── chat-openai.py             # OpenAI implementation (heavily commented!)
 ├── chat-claude.py             # Claude (Anthropic) implementation
+├── chat-ollama.py             # Ollama version for local open-source LLMs
 ├── chat-lmstudio.py           # LM Studio version for local LLMs
 ├── oauth_handler.py           # OAuth 2.0 authentication handler with PKCE
 ├── troubleshoot_openai.py     # OpenAI connection troubleshooter
@@ -76,9 +78,10 @@ Before you start, you'll need:
 
 1. **Python 3.10+** installed on your computer
 2. **uv** package manager ([install instructions](https://github.com/astral-sh/uv))
-3. **API key** for your chosen AI provider:
+3. **AI provider** of your choice:
    - **OpenAI API key** from [platform.openai.com](https://platform.openai.com) (for chat-openai.py)
    - **Claude API key** from [console.anthropic.com](https://console.anthropic.com/) (for chat-claude.py)
+   - **Ollama** installed from [ollama.ai](https://ollama.ai) (for chat-ollama.py)
    - **LM Studio** installed from [lmstudio.ai](https://lmstudio.ai) (for chat-lmstudio.py)
 4. **Workato MCP URL(s)** from your Workato workspace
 
@@ -110,6 +113,10 @@ MODEL=gpt-4o-mini
 # Claude Configuration (for chat-claude.py)
 CLAUDE_API_KEY=sk-ant-...your-key-here...
 CLAUDE_MODEL=claude-3-5-sonnet-20241022
+
+# Ollama Configuration (for chat-ollama.py)
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama3.2
 
 # LM Studio Configuration (for chat-lmstudio.py)
 LMSTUDIO_BASE_URL=http://localhost:1234/v1
@@ -345,7 +352,102 @@ Claude offers some unique advantages:
 - `claude-3-sonnet-20240229` - Fast and efficient
 - `claude-3-haiku-20240307` - Fastest and most economical
 
-#### Option C: LM Studio (Local)
+#### Option C: Ollama (Local)
+
+For running with local open-source LLMs via Ollama:
+
+1. **Install Ollama** from [ollama.ai](https://ollama.ai)
+2. **Pull a model** that supports function calling:
+
+```bash
+# Recommended models with function calling support
+ollama pull llama3.2        # Meta's Llama 3.2 (recommended)
+ollama pull mistral         # Mistral AI's model
+ollama pull qwen2.5         # Alibaba's Qwen 2.5
+
+# Other popular models (check function calling support)
+ollama pull llama3.1        # Meta's Llama 3.1
+ollama pull neural-chat     # Intel's neural chat model
+```
+
+3. **Verify Ollama is running**:
+
+```bash
+# Check if Ollama is running
+curl http://localhost:11434/api/tags
+
+# Should return JSON with list of installed models
+```
+
+4. **Run the Ollama chat**:
+
+```bash
+uv run python chat-ollama.py
+```
+
+**With System Prompt:**
+
+```bash
+# Using command line argument
+uv run python chat-ollama.py --system-prompt "You are a helpful medical assistant."
+
+# Or use the short form
+uv run python chat-ollama.py -s "You are a concise assistant that answers in bullet points."
+
+# View all options
+uv run python chat-ollama.py --help
+```
+
+You should see:
+
+```
+Ollama MCP Chat - Discovering tools...
+  - salesforce: 5 tools
+  - jira: 3 tools
+
+Connected to 2 server(s) with 8 total tools
+Using model: llama3.2
+Type 'quit' or 'exit' to end
+----------------------------------------
+
+You:
+```
+
+**Ollama-Specific Features:**
+
+- **100% Local**: All processing happens on your machine, no cloud API calls
+- **Privacy-Focused**: Your data never leaves your computer
+- **No API Costs**: Free to use, no usage limits
+- **Open-Source Models**: Access to llama3, mistral, qwen, and many more
+- **Customizable**: Fine-tune models for your specific use case
+
+**Ollama Configuration** (optional, in `.env`):
+
+```env
+# Change the Ollama server URL if needed (default: http://localhost:11434)
+OLLAMA_BASE_URL=http://localhost:11434
+
+# Change the model to use (must be pulled first)
+OLLAMA_MODEL=llama3.2
+
+# Other good options:
+# OLLAMA_MODEL=mistral
+# OLLAMA_MODEL=qwen2.5
+# OLLAMA_MODEL=llama3.1
+```
+
+**Recommended Models for MCP Tool Calling:**
+
+| Model | Size | Function Calling | Best For |
+|-------|------|------------------|----------|
+| llama3.2 | 3B | Yes | General use, fast responses |
+| mistral | 7B | Yes | Balanced performance |
+| qwen2.5 | 7B | Yes | Multilingual, coding |
+| llama3.1 | 8B | Yes | Advanced reasoning |
+
+**Note:** Not all Ollama models support function calling. For MCP tool integration, you must use a model that supports function calling (like those listed above). Check the model card on [ollama.ai/library](https://ollama.ai/library) for function calling support.
+
+#### Option D: LM Studio (Local)
 
 For running with a local LLM via LM Studio:
 
