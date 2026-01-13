@@ -11,3 +11,4 @@ logs/
 tmpclaude-5624-cwd
 .gitignore
 tmpclaude-41fb-cwd
+__pycache__/chat-ollama.cpython-313.pyc
