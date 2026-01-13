@@ -22,7 +22,7 @@ Usage:
 
 Configuration:
 - CLAUDE_API_KEY: Your Anthropic API key (required)
-- CLAUDE_MODEL: Claude model to use (default: claude-3-5-sonnet-20241022)
+- CLAUDE_MODEL: Claude model to use (default: claude-sonnet-4-5-20250929)
 - SYSTEM_PROMPT: Optional default system prompt for guiding Claude's behavior
 
 """
@@ -109,7 +109,7 @@ if TOKEN_LOG_FILE:
 client = Anthropic(api_key=os.getenv("CLAUDE_API_KEY"))
 
 # Get the model name from environment
-MODEL = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-20241022")
+MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5-20250929")
 
 # Get default system prompt from environment variable
 DEFAULT_SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", "")
@@ -624,7 +624,7 @@ Examples:
 
 Environment Variables:
   CLAUDE_API_KEY         Your Anthropic API key (required)
-  CLAUDE_MODEL          Claude model to use (default: claude-3-5-sonnet-20241022)
+  CLAUDE_MODEL          Claude model to use (default: claude-sonnet-4-5-20250929)
   SYSTEM_PROMPT         Default system prompt (overridden by --system-prompt)
         """
     )

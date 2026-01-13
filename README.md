@@ -109,7 +109,7 @@ MODEL=gpt-4o-mini
 
 # Claude Configuration (for chat-claude.py)
 CLAUDE_API_KEY=sk-ant-...your-key-here...
-CLAUDE_MODEL=claude-3-5-sonnet-20241022
+CLAUDE_MODEL=claude-sonnet-4-5-20250929
 
 # LM Studio Configuration (for chat-lmstudio.py)
 LMSTUDIO_BASE_URL=http://localhost:1234/v1
@@ -337,12 +337,13 @@ Claude offers some unique advantages:
 - **Long Context**: Handles larger conversations and more tool results
 - **Advanced Reasoning**: Excellent at complex multi-step queries
 - **Thoughtful Responses**: More detailed explanations and analysis
-- **Latest Models**: Access to Claude 3.5 Sonnet, Opus, and Haiku
+- **Latest Models**: Access to Claude Sonnet 4.5, Opus 4.5, and previous generation models
 
 **Claude Models:**
-- `claude-3-5-sonnet-20241022` - Best balance of performance and cost (recommended)
-- `claude-3-opus-20240229` - Most powerful, best for complex tasks
-- `claude-3-sonnet-20240229` - Fast and efficient
+- `claude-sonnet-4-5-20250929` - Latest Claude Sonnet 4.5, best balance of performance and cost (recommended)
+- `claude-opus-4-5-20251101` - Most powerful Claude model, best for complex tasks
+- `claude-3-5-sonnet-20241022` - Previous generation Sonnet, still very capable
+- `claude-3-opus-20240229` - Previous generation Opus
 - `claude-3-haiku-20240307` - Fastest and most economical
 
 #### Option C: LM Studio (Local)
