@@ -37,6 +37,8 @@ import os
 import json
 import requests
 import argparse
+import logging
+from datetime import datetime
 from dotenv import load_dotenv
 from openai import OpenAI
 from oauth_handler import get_token_for_server
@@ -48,6 +50,69 @@ from oauth_handler import get_token_for_server
 # Load environment variables from .env file
 # This keeps sensitive data like API keys out of your code
 load_dotenv()
+
+# Configure logging based on environment variable
+# Logging levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
+# DEBUG will show all MCP and LM Studio communication details
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+LOG_FILE = os.getenv("LOG_FILE", "")  # Path to log file (empty = no file logging)
+LOG_TO_CONSOLE = os.getenv("LOG_TO_CONSOLE", "true").lower() == "true"  # Whether to log to console
+TOKEN_LOG_FILE = os.getenv("TOKEN_LOG_FILE", "")  # Separate log file for token usage tracking
+
+# Create logs directory if logging to file
+if LOG_FILE:
+    log_dir = os.path.dirname(LOG_FILE)
+    if log_dir and not os.path.exists(log_dir):
+        os.makedirs(log_dir, exist_ok=True)
+
+# Create logs directory for token log file
+if TOKEN_LOG_FILE:
+    token_log_dir = os.path.dirname(TOKEN_LOG_FILE)
+    if token_log_dir and not os.path.exists(token_log_dir):
+        os.makedirs(token_log_dir, exist_ok=True)
+
+# Configure logging handlers
+handlers = []
+
+# Add file handler if LOG_FILE is specified
+if LOG_FILE:
+    file_handler = logging.FileHandler(LOG_FILE, mode='a', encoding='utf-8')
+    file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    ))
+    handlers.append(file_handler)
+
+# Add console handler if LOG_TO_CONSOLE is true
+if LOG_TO_CONSOLE:
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    ))
+    handlers.append(console_handler)
+
+# Configure logging with handlers
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    handlers=handlers,
+    force=True  # Override any existing configuration
+)
+logger = logging.getLogger(__name__)
+
+# Configure separate token usage logger
+token_logger = None
+if TOKEN_LOG_FILE:
+    token_logger = logging.getLogger("token_usage")
+    token_logger.setLevel(logging.INFO)
+    token_logger.propagate = False  # Don't propagate to root logger
+
+    token_handler = logging.FileHandler(TOKEN_LOG_FILE, mode='a', encoding='utf-8')
+    token_handler.setFormatter(logging.Formatter(
+        '%(asctime)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    ))
+    token_logger.addHandler(token_handler)
 
 # Initialize the OpenAI client pointing to LM Studio's local server
 # LM Studio provides an OpenAI-compatible API at http://localhost:1234/v1
@@ -64,6 +129,9 @@ MODEL = os.getenv("LMSTUDIO_MODEL", "local-model")
 
 # Get default system prompt from environment variable
 DEFAULT_SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", "")
+
+# Whether to automatically inject current date/time into each user message
+INJECT_CURRENT_DATE = os.getenv("INJECT_CURRENT_DATE", "true").lower() == "true"
 
 # Path to the MCP servers configuration file
 MCP_SERVERS_CONFIG = os.path.join(os.path.dirname(__file__), "mcp_servers.json")
@@ -202,6 +270,16 @@ def mcp_request(url: str, method: str, params: dict = None, headers: dict | None
         "params": params or {}
     }
 
+    # Log the MCP request (hide authorization headers for security)
+    logger.debug("=" * 80)
+    logger.debug("MCP REQUEST")
+    logger.debug(f"URL: {url}")
+    logger.debug(f"Method: {method}")
+    if headers:
+        safe_headers = {k: ("Bearer ***" if k == "Authorization" else v) for k, v in headers.items()}
+        logger.debug(f"Headers: {json.dumps(safe_headers, indent=2)}")
+    logger.debug(f"Payload: {json.dumps(payload, indent=2)}")
+
     # Send the request to the MCP server
     # timeout=30 means we'll wait up to 30 seconds for a response
     response = requests.post(url, json=payload, headers=headers, timeout=30)
@@ -210,7 +288,15 @@ def mcp_request(url: str, method: str, params: dict = None, headers: dict | None
     response.raise_for_status()
 
     # Parse and return the JSON response
-    return response.json()
+    response_data = response.json()
+
+    # Log the MCP response
+    logger.debug("MCP RESPONSE")
+    logger.debug(f"Status Code: {response.status_code}")
+    logger.debug(f"Response: {json.dumps(response_data, indent=2)}")
+    logger.debug("=" * 80)
+
+    return response_data
 
 
 # =============================================================================
@@ -263,6 +349,8 @@ def discover_tools() -> list:
     # Discover tools from each server
     for server_name, server_url in servers.items():
         try:
+            logger.info(f"Discovering tools from server: {server_name}")
+
             # Get auth headers if available
             headers = MCP_SERVER_HEADERS.get(server_name)
 
@@ -271,6 +359,8 @@ def discover_tools() -> list:
 
             # Extract the tools array from the response
             tools = result.get("result", {}).get("tools", [])
+
+            logger.debug(f"Server {server_name} returned {len(tools)} tools")
 
             # Convert MCP tools to OpenAI function format
             for tool in tools:
@@ -291,6 +381,8 @@ def discover_tools() -> list:
                 # e.g., "Get_Glucose_Values_v1" -> "dexcom__Get_Glucose_Values_v1"
                 prefixed_name = f"{server_name}__{tool['name']}"
 
+                logger.debug(f"  Discovered tool: {prefixed_name}")
+
                 # Build the tool definition in OpenAI's format
                 openai_tool = {
                     "type": "function",
@@ -303,10 +395,12 @@ def discover_tools() -> list:
                 openai_tools.append(openai_tool)
 
             print(f"  - {server_name}: {len(tools)} tools")
+            logger.info(f"Successfully discovered {len(tools)} tools from {server_name}")
 
         except Exception as e:
             # If a server fails, print error but continue with others
             print(f"  - {server_name}: Failed to discover tools: {e}")
+            logger.error(f"Failed to discover tools from {server_name}: {e}", exc_info=True)
 
     return openai_tools
 
@@ -450,8 +544,21 @@ def chat(system_prompt: str = ""):
             print("Goodbye!")
             break
 
+        # Optionally add current date/time context to user message
+        # This ensures the LLM always knows the current date for time-based queries
+        if INJECT_CURRENT_DATE:
+            current_datetime = datetime.now()
+            current_date_str = current_datetime.strftime("%Y-%m-%d")
+            current_time_str = current_datetime.strftime("%H:%M:%S")
+            current_datetime_formatted = current_datetime.strftime("%Y-%m-%dT%H:%M:%S")
+
+            # Prepend date context to user message
+            user_message_with_context = f"[Current date and time: {current_date_str} {current_time_str} (formatted for API: {current_datetime_formatted})]\n\n{user_input}"
+        else:
+            user_message_with_context = user_input
+
         # Add user message to conversation history
-        messages.append({"role": "user", "content": user_input})
+        messages.append({"role": "user", "content": user_message_with_context})
 
         try:
             # Build the request to LM Studio
@@ -464,9 +571,77 @@ def chat(system_prompt: str = ""):
             if tools:
                 kwargs["tools"] = tools
 
+            # Log the LM Studio request
+            logger.debug("=" * 80)
+            logger.debug("LM STUDIO REQUEST")
+            logger.debug(f"Model: {MODEL}")
+
+            # Safely log messages by converting them to dicts if needed
+            try:
+                # Filter out only user and system messages for initial request logging
+                safe_messages = []
+                for msg in messages:
+                    if isinstance(msg, dict):
+                        safe_messages.append(msg)
+                    else:
+                        # Convert OpenAI message objects to dict representation
+                        safe_messages.append({"role": msg.role, "content": str(msg.content)})
+                logger.debug(f"Messages: {json.dumps(safe_messages, indent=2)}")
+            except Exception as e:
+                logger.debug(f"Messages: {len(messages)} messages (could not serialize: {e})")
+
+            if tools:
+                logger.debug(f"Tools: {len(tools)} tools available")
+                logger.debug(f"Tool Names: {[t['function']['name'] for t in tools]}")
+
             # Send to LM Studio and get response
             response = client.chat.completions.create(**kwargs)
             assistant_message = response.choices[0].message
+
+            # Log the LM Studio response
+            logger.debug("LM STUDIO RESPONSE")
+            logger.debug(f"Finish Reason: {response.choices[0].finish_reason}")
+            if assistant_message.content:
+                logger.debug(f"Content: {assistant_message.content}")
+            if assistant_message.tool_calls:
+                logger.debug(f"Tool Calls: {len(assistant_message.tool_calls)}")
+                for tc in assistant_message.tool_calls:
+                    logger.debug(f"  - {tc.function.name}: {tc.function.arguments}")
+            if hasattr(response, 'usage') and response.usage:
+                logger.debug(f"Usage: prompt_tokens={response.usage.prompt_tokens}, "
+                            f"completion_tokens={response.usage.completion_tokens}, "
+                            f"total_tokens={response.usage.total_tokens}")
+                # Log token usage to separate token log file
+                if token_logger:
+                    # Extract user prompt (without the date injection prefix)
+                    user_prompt = user_input[:100] + "..." if len(user_input) > 100 else user_input
+                    user_prompt = user_prompt.replace("\n", " ").replace("|", "¦")  # Escape pipes and newlines
+
+                    # Check if tools were called and extract MCP servers used
+                    tools_used = "none"
+                    servers_used = "none"
+                    if assistant_message.tool_calls:
+                        tools_used = ", ".join([tc.function.name for tc in assistant_message.tool_calls])
+                        # Extract unique server names from tool names (format: servername__toolname)
+                        server_names = set()
+                        for tc in assistant_message.tool_calls:
+                            if "__" in tc.function.name:
+                                server_name = tc.function.name.split("__")[0]
+                                server_names.add(server_name)
+                        servers_used = ", ".join(sorted(server_names)) if server_names else "none"
+
+                    # Extract assistant response (truncate if too long)
+                    response_text = assistant_message.content if assistant_message.content else "[Tool calls only]"
+                    response_text = response_text[:200] + "..." if len(response_text) > 200 else response_text
+                    response_text = response_text.replace("\n", " ").replace("|", "¦")  # Escape pipes and newlines
+
+                    token_logger.info(f"MODEL={MODEL} | PROMPT={response.usage.prompt_tokens} | "
+                                    f"COMPLETION={response.usage.completion_tokens} | "
+                                    f"TOTAL={response.usage.total_tokens} | "
+                                    f"TYPE=initial_request | USER_PROMPT={user_prompt} | "
+                                    f"SERVERS={servers_used} | TOOLS={tools_used} | "
+                                    f"RESPONSE={response_text}")
+            logger.debug("=" * 80)
 
             # Handle tool calls
             # LM Studio might request one or more tools to be called
@@ -484,8 +659,15 @@ def chat(system_prompt: str = ""):
                     # Show the user what tool is being called
                     print(f"\n[Calling {name}...]")
 
+                    # Log tool call details
+                    logger.info(f"Tool Call: {name}")
+                    logger.debug(f"Tool Arguments: {json.dumps(args, indent=2)}")
+
                     # Call the tool on the MCP server
                     result = call_tool(name, args)
+
+                    # Log tool result
+                    logger.debug(f"Tool Result: {result[:500]}..." if len(result) > 500 else f"Tool Result: {result}")
 
                     # Add tool result to conversation history
                     # LM Studio needs this to generate its response
@@ -495,9 +677,58 @@ def chat(system_prompt: str = ""):
                         "content": result
                     })
 
+                # Log the follow-up request to LM Studio
+                logger.debug("=" * 80)
+                logger.debug("LM STUDIO FOLLOW-UP REQUEST (with tool results)")
+                logger.debug(f"Model: {MODEL}")
+                logger.debug(f"Number of messages in history: {len(messages)}")
+
                 # Get LM Studio's next response (might be another tool call or final answer)
                 response = client.chat.completions.create(**kwargs)
                 assistant_message = response.choices[0].message
+
+                # Log the follow-up response
+                logger.debug("LM STUDIO FOLLOW-UP RESPONSE")
+                logger.debug(f"Finish Reason: {response.choices[0].finish_reason}")
+                if assistant_message.content:
+                    logger.debug(f"Content: {assistant_message.content}")
+                if assistant_message.tool_calls:
+                    logger.debug(f"Additional Tool Calls: {len(assistant_message.tool_calls)}")
+                if hasattr(response, 'usage') and response.usage:
+                    logger.debug(f"Usage: prompt_tokens={response.usage.prompt_tokens}, "
+                                f"completion_tokens={response.usage.completion_tokens}, "
+                                f"total_tokens={response.usage.total_tokens}")
+                    # Log token usage to separate token log file
+                    if token_logger:
+                        # Extract user prompt (without the date injection prefix)
+                        user_prompt = user_input[:100] + "..." if len(user_input) > 100 else user_input
+                        user_prompt = user_prompt.replace("\n", " ").replace("|", "¦")  # Escape pipes and newlines
+
+                        # Check if additional tools were called and extract MCP servers used
+                        tools_used = "none"
+                        servers_used = "none"
+                        if assistant_message.tool_calls:
+                            tools_used = ", ".join([tc.function.name for tc in assistant_message.tool_calls])
+                            # Extract unique server names from tool names (format: servername__toolname)
+                            server_names = set()
+                            for tc in assistant_message.tool_calls:
+                                if "__" in tc.function.name:
+                                    server_name = tc.function.name.split("__")[0]
+                                    server_names.add(server_name)
+                            servers_used = ", ".join(sorted(server_names)) if server_names else "none"
+
+                        # Extract assistant response (truncate if too long)
+                        response_text = assistant_message.content if assistant_message.content else "[Tool calls only]"
+                        response_text = response_text[:200] + "..." if len(response_text) > 200 else response_text
+                        response_text = response_text.replace("\n", " ").replace("|", "¦")  # Escape pipes and newlines
+
+                        token_logger.info(f"MODEL={MODEL} | PROMPT={response.usage.prompt_tokens} | "
+                                        f"COMPLETION={response.usage.completion_tokens} | "
+                                        f"TOTAL={response.usage.total_tokens} | "
+                                        f"TYPE=tool_followup | USER_PROMPT={user_prompt} | "
+                                        f"SERVERS={servers_used} | TOOLS={tools_used} | "
+                                        f"RESPONSE={response_text}")
+                logger.debug("=" * 80)
 
             # Add final response to history and display to user
             messages.append({"role": "assistant", "content": assistant_message.content})

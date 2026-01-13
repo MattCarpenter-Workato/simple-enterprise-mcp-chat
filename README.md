@@ -366,6 +366,278 @@ System prompts are useful for:
 
 Tool names are automatically prefixed with the server name (e.g., `salesforce__Query_Records`) to avoid conflicts between servers.
 
+## Current Date/Time Injection
+
+The chatbot automatically injects the current date and time into each user message to ensure the LLM always knows the current date for time-based queries. This is especially important for applications like CGM data analysis where "last 3 days" or "this week" needs to be calculated from today's date.
+
+**Configuration:**
+
+```env
+# Automatically inject current date/time (recommended)
+INJECT_CURRENT_DATE=true
+```
+
+**How it works:**
+
+Each user message is automatically prepended with the current date and time:
+
+```
+[Current date and time: 2026-01-12 16:30:45 (formatted for API: 2026-01-12T16:30:45)]
+
+What were my glucose levels in the last 3 days?
+```
+
+This ensures the LLM:
+- Knows the exact current date (not relying on its knowledge cutoff date)
+- Can accurately calculate relative dates ("last 3 days", "this week", etc.)
+- Uses the correct date format for API calls (YYYY-MM-DDTHH:MM:SS)
+
+**When to disable:**
+
+Set `INJECT_CURRENT_DATE=false` if:
+- You're testing with historical conversations
+- The current date is not relevant to your use case
+- You want to manually specify dates in your prompts
+
+## Logging and Debugging
+
+Both the OpenAI and LM Studio versions include comprehensive logging to help you debug issues and understand what's happening behind the scenes.
+
+### Enabling Detailed Logging
+
+The chatbot supports flexible logging to both console and file. Add these to your `.env` file:
+
+```env
+# Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+LOG_LEVEL=DEBUG
+
+# Log to file (optional)
+LOG_FILE=logs/chat.log
+
+# Show logs in terminal (true/false)
+LOG_TO_CONSOLE=true
+```
+
+**Configuration Options:**
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `LOG_LEVEL` | Logging detail level | `DEBUG`, `INFO`, `WARNING` |
+| `LOG_FILE` | Path to log file (leave empty to disable) | `logs/chat.log` |
+| `LOG_TO_CONSOLE` | Show logs in terminal | `true` or `false` |
+
+**Common Configurations:**
+
+1. **Debug to file only (clean terminal):**
+   ```env
+   LOG_LEVEL=DEBUG
+   LOG_FILE=logs/chat.log
+   LOG_TO_CONSOLE=false
+   ```
+
+2. **Debug to both file and terminal:**
+   ```env
+   LOG_LEVEL=DEBUG
+   LOG_FILE=logs/chat.log
+   LOG_TO_CONSOLE=true
+   ```
+
+3. **Console only (no file):**
+   ```env
+   LOG_LEVEL=DEBUG
+   LOG_FILE=
+   LOG_TO_CONSOLE=true
+   ```
+
+**Logging Levels Explained:**
+
+- **DEBUG**: Shows all communication details including:
+  - Complete MCP JSON-RPC requests and responses
+  - Full OpenAI/LM Studio API requests and responses
+  - Tool discovery process
+  - Tool execution details
+  - Token usage statistics (when available)
+
+- **INFO**: Shows high-level operations:
+  - Tool calls and which tools are being invoked
+  - Server connection status
+  - OAuth authentication flow
+
+- **WARNING**: Shows only warnings and errors
+
+- **ERROR/CRITICAL**: Shows only errors
+
+### Example Debug Output
+
+When `LOG_LEVEL=DEBUG`, you'll see detailed logs like:
+
+```
+2026-01-12 10:30:45 - __main__ - DEBUG - ================================================================================
+2026-01-12 10:30:45 - __main__ - DEBUG - MCP REQUEST
+2026-01-12 10:30:45 - __main__ - DEBUG - URL: https://apim.workato.com/your-workspace/dexcom-mcp
+2026-01-12 10:30:45 - __main__ - DEBUG - Method: tools/call
+2026-01-12 10:30:45 - __main__ - DEBUG - Headers: {
+  "Authorization": "Bearer ***"
+}
+2026-01-12 10:30:45 - __main__ - DEBUG - Payload: {
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "Get_Glucose_Values_v1",
+    "arguments": {
+      "start_date_time": "2026-01-01T00:00:00",
+      "end_date_time": "2026-01-07T23:59:59"
+    }
+  }
+}
+2026-01-12 10:30:46 - __main__ - DEBUG - MCP RESPONSE
+2026-01-12 10:30:46 - __main__ - DEBUG - Status Code: 200
+2026-01-12 10:30:46 - __main__ - DEBUG - Response: {
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "Found 1,234 glucose readings..."
+      }
+    ]
+  }
+}
+2026-01-12 10:30:46 - __main__ - DEBUG - ================================================================================
+2026-01-12 10:30:46 - __main__ - DEBUG - ================================================================================
+2026-01-12 10:30:46 - __main__ - DEBUG - OPENAI REQUEST
+2026-01-12 10:30:46 - __main__ - DEBUG - Model: gpt-4o-mini
+2026-01-12 10:30:46 - __main__ - DEBUG - Messages: [
+  {
+    "role": "user",
+    "content": "What was my average glucose last week?"
+  },
+  {
+    "role": "tool",
+    "tool_call_id": "call_abc123",
+    "content": "Found 1,234 glucose readings..."
+  }
+]
+2026-01-12 10:30:47 - __main__ - DEBUG - OPENAI RESPONSE
+2026-01-12 10:30:47 - __main__ - DEBUG - Finish Reason: stop
+2026-01-12 10:30:47 - __main__ - DEBUG - Content: Your average glucose last week was 125 mg/dL...
+2026-01-12 10:30:47 - __main__ - DEBUG - Usage: prompt_tokens=523, completion_tokens=87, total_tokens=610
+2026-01-12 10:30:47 - __main__ - DEBUG - ================================================================================
+```
+
+### What Gets Logged
+
+**MCP Server Communication:**
+- Request URL and method
+- Request payload (JSON-RPC 2.0 format)
+- Authorization headers (masked for security)
+- Response status codes
+- Complete response data
+
+**OpenAI/LM Studio Communication:**
+- Model being used
+- Complete message history sent to the LLM
+- Available tools and their names
+- LLM's response content
+- Tool calls requested by the LLM
+- Token usage (prompt, completion, and total tokens - when available)
+
+**Tool Operations:**
+- Tool discovery from each server
+- Tool names and descriptions
+- Tool execution with arguments
+- Tool results (truncated if very long)
+
+### Log Files
+
+When `LOG_FILE` is set, logs are saved to the specified file:
+
+- The `logs/` directory is automatically created if it doesn't exist
+- Logs are appended to the file (not overwritten)
+- The `logs/` directory is excluded from Git (already in `.gitignore`)
+- You can use any path: `logs/chat.log`, `logs/debug-2026-01-12.log`, etc.
+
+**Viewing Log Files:**
+
+```bash
+# View entire log file
+cat logs/chat.log
+
+# Follow log in real-time (like tail -f)
+tail -f logs/chat.log
+
+# View last 50 lines
+tail -n 50 logs/chat.log
+
+# Search logs for errors
+grep "ERROR" logs/chat.log
+```
+
+### Token Usage Tracking
+
+The chatbot can maintain a separate log file specifically for tracking token usage across all API calls. This is invaluable for:
+- Monitoring API costs
+- Optimizing prompts and system messages
+- Identifying expensive queries
+- Tracking usage over time
+
+**Configuration:**
+
+```env
+# Enable token usage logging
+TOKEN_LOG_FILE=logs/tokens.log
+```
+
+**Token Log Format:**
+
+Each API call is logged with the following information:
+
+```
+2026-01-12 16:45:30 - MODEL=gpt-4o-mini | PROMPT=523 | COMPLETION=87 | TOTAL=610 | TYPE=initial_request | USER_PROMPT=What were my glucose levels in the last 3 days? | SERVERS=dexcom | TOOLS=dexcom__Get_Data_Range_VUA_, dexcom__Get_Glucose_Values_VUA_ | RESPONSE=[Tool calls only]
+2026-01-12 16:45:35 - MODEL=gpt-4o-mini | PROMPT=1250 | COMPLETION=45 | TOTAL=1295 | TYPE=tool_followup | USER_PROMPT=What were my glucose levels in the last 3 days? | SERVERS=none | TOOLS=none | RESPONSE=Based on the data from the last 3 days, your average glucose was 145 mg/dL with 68% time in range (70-180 mg/dL). You had 12 low readings below 70 mg/dL and 45 high readings...
+```
+
+**Log Fields:**
+- **MODEL**: The model being used (e.g., `gpt-4o-mini`, `gpt-4o`, `local-model`)
+- **PROMPT**: Number of prompt tokens (input)
+- **COMPLETION**: Number of completion tokens (output)
+- **TOTAL**: Total tokens used
+- **TYPE**: Request type (`initial_request` or `tool_followup`)
+- **USER_PROMPT**: The user's question/prompt (truncated to 100 chars)
+- **SERVERS**: Comma-separated list of MCP servers used (e.g., `dexcom`, `salesforce`), or "none"
+- **TOOLS**: Comma-separated list of tools called, or "none"
+- **RESPONSE**: The assistant's response (truncated to 200 chars)
+
+**Analyzing Token Usage:**
+
+```bash
+# View all token usage
+cat logs/tokens.log
+
+# Calculate total tokens used
+awk -F'TOTAL=' '{sum+=$2} END {print "Total tokens:", sum}' logs/tokens.log | awk '{print $1, $2, $3}'
+
+# Find most expensive queries
+sort -t'=' -k5 -nr logs/tokens.log | head -10
+
+# Count API calls per day
+grep "2026-01-12" logs/tokens.log | wc -l
+```
+
+**Cost Calculation Example:**
+
+For OpenAI pricing (as of example):
+- GPT-4o-mini: ~$0.15/1M input tokens, ~$0.60/1M output tokens
+- GPT-4o: ~$2.50/1M input tokens, ~$10.00/1M output tokens
+
+Use the token logs to estimate costs and optimize usage.
+
+### Security Note
+
+Authorization tokens in the logs are automatically masked to show `Bearer ***` instead of the actual token value. Your API keys remain secure even with DEBUG logging enabled.
+
 ## How to Use
 
 Just type natural language questions! The AI will figure out which tools to use.
