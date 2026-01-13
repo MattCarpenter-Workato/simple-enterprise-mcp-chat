@@ -436,7 +436,16 @@ def chat(system_prompt: str = ""):
             # Log the Claude response
             logger.debug("CLAUDE RESPONSE")
             logger.debug(f"Stop Reason: {response.stop_reason}")
-            logger.debug(f"Content: {json.dumps([{'type': c.type, 'text': c.text if hasattr(c, 'text') else c.name} for c in response.content], indent=2)}")
+            # Safely log content blocks
+            safe_content = []
+            for c in response.content:
+                if hasattr(c, 'text'):
+                    safe_content.append({'type': c.type, 'text': c.text[:200] + '...' if len(c.text) > 200 else c.text})
+                elif hasattr(c, 'name'):
+                    safe_content.append({'type': c.type, 'name': c.name})
+                else:
+                    safe_content.append({'type': c.type})
+            logger.debug(f"Content: {json.dumps(safe_content, indent=2)}")
             logger.debug(f"Usage: input_tokens={response.usage.input_tokens}, "
                         f"output_tokens={response.usage.output_tokens}")
             logger.debug("=" * 80)
@@ -516,7 +525,16 @@ def chat(system_prompt: str = ""):
                 # Log the follow-up response
                 logger.debug("CLAUDE FOLLOW-UP RESPONSE")
                 logger.debug(f"Stop Reason: {response.stop_reason}")
-                logger.debug(f"Content: {json.dumps([{'type': c.type, 'text': c.text if hasattr(c, 'text') else c.name} for c in response.content], indent=2)}")
+                # Safely log content blocks
+                safe_content = []
+                for c in response.content:
+                    if hasattr(c, 'text'):
+                        safe_content.append({'type': c.type, 'text': c.text[:200] + '...' if len(c.text) > 200 else c.text})
+                    elif hasattr(c, 'name'):
+                        safe_content.append({'type': c.type, 'name': c.name})
+                    else:
+                        safe_content.append({'type': c.type})
+                logger.debug(f"Content: {json.dumps(safe_content, indent=2)}")
                 logger.debug(f"Usage: input_tokens={response.usage.input_tokens}, "
                             f"output_tokens={response.usage.output_tokens}")
                 logger.debug("=" * 80)
