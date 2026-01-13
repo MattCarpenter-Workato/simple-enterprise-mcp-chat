@@ -1,8 +1,11 @@
 # Simple MCP Chat
 
-A beginner-friendly Python chatbot that connects to Workato's Enterprise MCP servers. This is the simplest possible example of using MCP (Model Context Protocol) with OpenAI's function calling feature.
+A beginner-friendly Python chatbot that connects to Workato's Enterprise MCP servers. This is the simplest possible example of using MCP (Model Context Protocol) with AI models.
 
-**Now with LM Studio support!** Run your MCP chatbot with local LLMs for privacy and cost savings.
+**Multiple AI Options Available:**
+- **OpenAI** (GPT-4, GPT-4o, GPT-3.5) - Cloud-based, powerful, easy to use
+- **Claude** (Anthropic) - Advanced reasoning, long context, thoughtful responses
+- **LM Studio** - Run local LLMs for privacy and cost savings
 
 ## What Does This Do?
 
@@ -51,7 +54,8 @@ When you ask the AI a question, it decides if it needs external data. If so, it:
 
 ```
 simple-mcp-chat/
-├── chat.py                    # Main application using OpenAI (heavily commented!)
+├── chat-openai.py             # OpenAI implementation (heavily commented!)
+├── chat-claude.py             # Claude (Anthropic) implementation
 ├── chat-lmstudio.py           # LM Studio version for local LLMs
 ├── oauth_handler.py           # OAuth 2.0 authentication handler with PKCE
 ├── troubleshoot_openai.py     # OpenAI connection troubleshooter
@@ -72,7 +76,10 @@ Before you start, you'll need:
 
 1. **Python 3.10+** installed on your computer
 2. **uv** package manager ([install instructions](https://github.com/astral-sh/uv))
-3. **OpenAI API key** from [platform.openai.com](https://platform.openai.com)
+3. **API key** for your chosen AI provider:
+   - **OpenAI API key** from [platform.openai.com](https://platform.openai.com) (for chat-openai.py)
+   - **Claude API key** from [console.anthropic.com](https://console.anthropic.com/) (for chat-claude.py)
+   - **LM Studio** installed from [lmstudio.ai](https://lmstudio.ai) (for chat-lmstudio.py)
 4. **Workato MCP URL(s)** from your Workato workspace
 
 ## Setup Instructions
@@ -93,13 +100,20 @@ cp env.example .env
 cp mcp_servers.example.json mcp_servers.json
 ```
 
-Edit `.env` with your OpenAI API key:
+Edit `.env` with your API key(s):
 
 ```env
-# Your OpenAI API key
+# OpenAI Configuration (for chat-openai.py)
 OPENAI_API_KEY=sk-proj-...your-key-here...
-# Which model to use (gpt-4o-mini is cheap and fast)
 MODEL=gpt-4o-mini
+
+# Claude Configuration (for chat-claude.py)
+CLAUDE_API_KEY=sk-ant-...your-key-here...
+CLAUDE_MODEL=claude-3-5-sonnet-20241022
+
+# LM Studio Configuration (for chat-lmstudio.py)
+LMSTUDIO_BASE_URL=http://localhost:1234/v1
+LMSTUDIO_MODEL=local-model
 ```
 
 Edit `mcp_servers.json` to configure your MCP servers. You can use either token-based or OAuth authentication.
@@ -219,29 +233,51 @@ uv sync
 
 This installs:
 
-- `openai` - For talking to GPT
+- `openai` - For talking to GPT (used by chat-openai.py)
+- `anthropic` - For talking to Claude (used by chat-claude.py)
 - `python-dotenv` - For loading your .env file
 - `requests` - For making HTTP calls to the MCP server and OAuth authentication
 
 ### Step 4: Run the Chat
 
+Choose your AI provider:
+
 #### Option A: OpenAI (Cloud)
 
 ```bash
-uv run python chat.py
+uv run python chat-openai.py
 ```
 
 **With System Prompt:**
 
 ```bash
 # Using command line argument
-uv run python chat.py --system-prompt "You are a helpful medical assistant."
+uv run python chat-openai.py --system-prompt "You are a helpful medical assistant."
 
 # Or use the short form
-uv run python chat.py -s "You are a concise assistant that answers in bullet points."
+uv run python chat-openai.py -s "You are a concise assistant that answers in bullet points."
 
 # View all options
-uv run python chat.py --help
+uv run python chat-openai.py --help
+```
+
+#### Option B: Claude (Cloud)
+
+```bash
+uv run python chat-claude.py
+```
+
+**With System Prompt:**
+
+```bash
+# Using command line argument
+uv run python chat-claude.py --system-prompt "You are a helpful medical assistant."
+
+# Or use the short form
+uv run python chat-claude.py -s "You are a concise assistant that answers in bullet points."
+
+# View all options
+uv run python chat-claude.py --help
 ```
 
 You should see:
@@ -295,7 +331,21 @@ Using stored token for sheets
 Connected to 2 server(s) with 6 total tools
 ```
 
-#### Option B: LM Studio (Local)
+**Claude-Specific Features:**
+
+Claude offers some unique advantages:
+- **Long Context**: Handles larger conversations and more tool results
+- **Advanced Reasoning**: Excellent at complex multi-step queries
+- **Thoughtful Responses**: More detailed explanations and analysis
+- **Latest Models**: Access to Claude 3.5 Sonnet, Opus, and Haiku
+
+**Claude Models:**
+- `claude-3-5-sonnet-20241022` - Best balance of performance and cost (recommended)
+- `claude-3-opus-20240229` - Most powerful, best for complex tasks
+- `claude-3-sonnet-20240229` - Fast and efficient
+- `claude-3-haiku-20240307` - Fastest and most economical
+
+#### Option C: LM Studio (Local)
 
 For running with a local LLM via LM Studio:
 
@@ -453,10 +503,10 @@ LOG_TO_CONSOLE=true
 
 - **DEBUG**: Shows all communication details including:
   - Complete MCP JSON-RPC requests and responses
-  - Full OpenAI/LM Studio API requests and responses
+  - Full OpenAI/Claude/LM Studio API requests and responses
   - Tool discovery process
   - Tool execution details
-  - Token usage statistics (when available)
+  - Token usage statistics
 
 - **INFO**: Shows high-level operations:
   - Tool calls and which tools are being invoked
@@ -536,13 +586,15 @@ When `LOG_LEVEL=DEBUG`, you'll see detailed logs like:
 - Response status codes
 - Complete response data
 
-**OpenAI/LM Studio Communication:**
+**AI Model Communication (OpenAI/Claude/LM Studio):**
 - Model being used
 - Complete message history sent to the LLM
 - Available tools and their names
 - LLM's response content
 - Tool calls requested by the LLM
-- Token usage (prompt, completion, and total tokens - when available)
+- Token usage:
+  - OpenAI/LM Studio: prompt_tokens, completion_tokens, total_tokens
+  - Claude: input_tokens, output_tokens
 
 **Tool Operations:**
 - Tool discovery from each server
@@ -600,15 +652,19 @@ Each API call is logged with the following information:
 ```
 
 **Log Fields:**
-- **MODEL**: The model being used (e.g., `gpt-4o-mini`, `gpt-4o`, `local-model`)
-- **PROMPT**: Number of prompt tokens (input)
-- **COMPLETION**: Number of completion tokens (output)
+- **MODEL**: The model being used (e.g., `gpt-4o-mini`, `claude-3-5-sonnet-20241022`, `local-model`)
+- **PROMPT** or **INPUT**: Number of prompt/input tokens (depending on provider)
+- **COMPLETION** or **OUTPUT**: Number of completion/output tokens (depending on provider)
 - **TOTAL**: Total tokens used
 - **TYPE**: Request type (`initial_request` or `tool_followup`)
 - **USER_PROMPT**: The user's question/prompt (truncated to 100 chars)
 - **SERVERS**: Comma-separated list of MCP servers used (e.g., `dexcom`, `salesforce`), or "none"
 - **TOOLS**: Comma-separated list of tools called, or "none"
 - **RESPONSE**: The assistant's response (truncated to 200 chars)
+
+**Note:** Token field names vary by provider:
+- OpenAI/LM Studio: `PROMPT`, `COMPLETION`, `TOTAL`
+- Claude: `INPUT`, `OUTPUT`, `TOTAL`
 
 **Analyzing Token Usage:**
 
@@ -628,9 +684,15 @@ grep "2026-01-12" logs/tokens.log | wc -l
 
 **Cost Calculation Example:**
 
-For OpenAI pricing (as of example):
-- GPT-4o-mini: ~$0.15/1M input tokens, ~$0.60/1M output tokens
-- GPT-4o: ~$2.50/1M input tokens, ~$10.00/1M output tokens
+For pricing comparison (example rates):
+- **OpenAI:**
+  - GPT-4o-mini: ~$0.15/1M input tokens, ~$0.60/1M output tokens
+  - GPT-4o: ~$2.50/1M input tokens, ~$10.00/1M output tokens
+- **Claude:**
+  - Claude 3.5 Sonnet: ~$3.00/1M input tokens, ~$15.00/1M output tokens
+  - Claude 3 Opus: ~$15.00/1M input tokens, ~$75.00/1M output tokens
+  - Claude 3 Haiku: ~$0.25/1M input tokens, ~$1.25/1M output tokens
+- **LM Studio:** Free (runs locally)
 
 Use the token logs to estimate costs and optimize usage.
 
