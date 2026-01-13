@@ -946,6 +946,59 @@ Not all models support function calling. Try a model that explicitly supports to
 - Llama models with function calling support
 - Qwen models with tool support
 
+### Ollama: "Could not connect to Ollama"
+
+Make sure Ollama is installed and running. Check the service:
+
+```bash
+# Check if Ollama is running
+curl http://localhost:11434/api/tags
+
+# Or check the version
+ollama --version
+```
+
+If Ollama isn't running, start it:
+- **macOS/Linux**: Ollama starts automatically after installation, or run `ollama serve`
+- **Windows**: Launch Ollama from the Start menu or system tray
+
+### Ollama: "Model not found"
+
+The model must be pulled before use:
+
+```bash
+# Pull the model specified in your .env
+ollama pull llama3.2
+
+# Verify it's installed
+ollama list
+```
+
+### Ollama: Tools not being called or incorrect responses
+
+Not all Ollama models support function calling. Use models with proven tool support:
+
+- **llama3.2** (recommended for general use)
+- **mistral** (good balance of performance)
+- **qwen2.5** (multilingual, coding)
+- **llama3.1** (advanced reasoning)
+
+Smaller models like `llama3.2:1b` are fast but may be less accurate with complex tool calls. For best results, use the default 3B or larger models.
+
+### Ollama: Slow responses
+
+Try a smaller/faster model:
+
+```bash
+# Very fast, lightweight (good for testing)
+ollama pull llama3.2:1b
+
+# Or use GGUF quantized models for better performance
+ollama pull llama3.2:3b-q4_0
+```
+
+You can also adjust the `OLLAMA_MODEL` setting in your `.env` file.
+
 ## License
 
 MIT
