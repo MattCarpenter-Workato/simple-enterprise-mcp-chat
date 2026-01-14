@@ -6,7 +6,8 @@
       "Bash(python:*)",
       "Bash(ollama list:*)",
       "Bash(ollama pull:*)",
-      "Bash(timeout 30 uv run:*)"
+      "Bash(timeout 30 uv run:*)",
+      "Bash(pkill:*)"
     ]
   }
 }
