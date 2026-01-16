@@ -15,6 +15,7 @@ Key Features:
 - Compatible with any Ollama model (llama3, mistral, neural-chat, etc.)
 - Function calling support (if the model supports it)
 - Same MCP tool integration as OpenAI/Claude versions
+- Automatic model preloading on startup to eliminate first-request delays
 
 Usage:
 - python chat-ollama.py
@@ -353,6 +354,66 @@ def call_tool(name: str, arguments: dict) -> str:
 # OLLAMA API CLIENT
 # =============================================================================
 
+def preload_model(model: str = OLLAMA_MODEL) -> bool:
+    """
+    Preload an Ollama model into memory to avoid delays on first request.
+
+    Uses the /api/generate endpoint with an empty request to warm up the model.
+    Sets keep_alive=-1 to keep the model loaded in memory indefinitely.
+
+    Args:
+        model: Model name to preload
+
+    Returns:
+        True if preload successful, False otherwise
+    """
+    base_url = OLLAMA_BASE_URL.rstrip('/')
+    if base_url.endswith('/v1'):
+        base_url = base_url[:-3]
+    url = f"{base_url}/api/generate"
+
+    payload = {
+        "model": model,
+        "keep_alive": -1  # Keep model loaded indefinitely
+    }
+
+    try:
+        print(f"Loading model '{model}' into memory...", end="", flush=True)
+        response = requests.post(url, json=payload, timeout=300)  # 5 min timeout for large models
+        response.raise_for_status()
+        print(" ✓")
+        logger.info(f"Successfully preloaded model: {model}")
+        return True
+
+    except requests.exceptions.ConnectionError:
+        print(" ✗")
+        print(f"Cannot connect to Ollama at {OLLAMA_BASE_URL}. Is Ollama running?")
+        logger.error(f"Connection error while preloading model {model}")
+        return False
+
+    except requests.exceptions.Timeout:
+        print(" ✗")
+        print(f"Timeout while loading model. The model '{model}' might need to be pulled first.")
+        print(f"Try: ollama pull {model}")
+        logger.error(f"Timeout while preloading model {model}")
+        return False
+
+    except requests.exceptions.HTTPError as e:
+        print(" ✗")
+        if e.response.status_code == 404:
+            print(f"Model '{model}' not found. Pull it first with: ollama pull {model}")
+        else:
+            print(f"HTTP error: {e}")
+        logger.error(f"HTTP error while preloading model {model}: {e}")
+        return False
+
+    except Exception as e:
+        print(" ✗")
+        print(f"Error preloading model: {e}")
+        logger.error(f"Unexpected error while preloading model {model}: {e}", exc_info=True)
+        return False
+
+
 def ollama_chat(messages: list, tools: list = None, model: str = OLLAMA_MODEL) -> dict:
     """
     Send a chat request to Ollama API.
@@ -436,8 +497,18 @@ def chat(system_prompt: str = ""):
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
 
+    # Preload model into memory
+    print("Ollama MCP Chat")
+    print("-" * 40)
+    model_loaded = preload_model(OLLAMA_MODEL)
+
+    if not model_loaded:
+        print("\nWarning: Model could not be preloaded. First request may be slow.")
+        print("The chat will continue, but you may experience delays.")
+        print()
+
     # Discover available MCP tools at startup
-    print("Ollama MCP Chat - Discovering tools...")
+    print("Discovering tools...")
     tools = discover_tools()
 
     # Display startup message
