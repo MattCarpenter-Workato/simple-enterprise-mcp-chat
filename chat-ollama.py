@@ -354,9 +354,115 @@ def call_tool(name: str, arguments: dict) -> str:
 # OLLAMA API CLIENT
 # =============================================================================
 
+def check_model_exists(model: str = OLLAMA_MODEL) -> bool:
+    """
+    Check if a model exists locally in Ollama.
+
+    Args:
+        model: Model name to check
+
+    Returns:
+        True if model exists, False otherwise
+    """
+    base_url = OLLAMA_BASE_URL.rstrip('/')
+    if base_url.endswith('/v1'):
+        base_url = base_url[:-3]
+    url = f"{base_url}/api/tags"
+
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+
+        # Check if the model exists in the list of models
+        models = data.get("models", [])
+        for m in models:
+            model_name = m.get("name", "")
+            # Handle model names with and without tags (e.g., "llama3.2" or "llama3.2:latest")
+            if model_name == model or model_name.startswith(f"{model}:"):
+                return True
+
+        return False
+
+    except Exception as e:
+        logger.error(f"Error checking if model exists: {e}", exc_info=True)
+        return False
+
+
+def pull_model(model: str = OLLAMA_MODEL) -> bool:
+    """
+    Pull a model from Ollama registry with progress updates.
+
+    Args:
+        model: Model name to pull
+
+    Returns:
+        True if pull successful, False otherwise
+    """
+    base_url = OLLAMA_BASE_URL.rstrip('/')
+    if base_url.endswith('/v1'):
+        base_url = base_url[:-3]
+    url = f"{base_url}/api/pull"
+
+    payload = {
+        "name": model,
+        "stream": True
+    }
+
+    try:
+        print(f"Pulling model '{model}' from Ollama registry...")
+        logger.info(f"Starting pull for model: {model}")
+
+        response = requests.post(url, json=payload, stream=True, timeout=600)  # 10 min timeout
+        response.raise_for_status()
+
+        # Track download progress
+        last_status = ""
+        for line in response.iter_lines():
+            if line:
+                try:
+                    status_data = json.loads(line)
+                    status = status_data.get("status", "")
+
+                    # Show progress updates
+                    if status != last_status:
+                        if status:
+                            print(f"  {status}", flush=True)
+                        last_status = status
+
+                    # Check for completion
+                    if status == "success" or "success" in status.lower():
+                        print(f"Successfully pulled model '{model}' ✓")
+                        logger.info(f"Successfully pulled model: {model}")
+                        return True
+
+                except json.JSONDecodeError:
+                    continue
+
+        print(f"Model '{model}' pull completed ✓")
+        logger.info(f"Model pull completed: {model}")
+        return True
+
+    except requests.exceptions.ConnectionError:
+        print(f"Cannot connect to Ollama at {OLLAMA_BASE_URL}. Is Ollama running?")
+        logger.error(f"Connection error while pulling model {model}")
+        return False
+
+    except requests.exceptions.Timeout:
+        print(f"Timeout while pulling model '{model}'.")
+        logger.error(f"Timeout while pulling model {model}")
+        return False
+
+    except Exception as e:
+        print(f"Error pulling model: {e}")
+        logger.error(f"Unexpected error while pulling model {model}: {e}", exc_info=True)
+        return False
+
+
 def preload_model(model: str = OLLAMA_MODEL) -> bool:
     """
     Preload an Ollama model into memory to avoid delays on first request.
+    If the model doesn't exist locally, it will be pulled first.
 
     Uses the /api/generate endpoint with an empty request to warm up the model.
     Sets keep_alive=-1 to keep the model loaded in memory indefinitely.
@@ -367,6 +473,19 @@ def preload_model(model: str = OLLAMA_MODEL) -> bool:
     Returns:
         True if preload successful, False otherwise
     """
+    # Check if model exists locally
+    print(f"Checking if model '{model}' exists...", end="", flush=True)
+    model_exists = check_model_exists(model)
+
+    if not model_exists:
+        print(" not found")
+        # Try to pull the model
+        if not pull_model(model):
+            print(f"\nFailed to pull model '{model}'. Please run: ollama pull {model}")
+            return False
+    else:
+        print(" ✓")
+
     base_url = OLLAMA_BASE_URL.rstrip('/')
     if base_url.endswith('/v1'):
         base_url = base_url[:-3]

@@ -358,20 +358,8 @@ Claude offers some unique advantages:
 For running with local open-source LLMs via Ollama:
 
 1. **Install Ollama** from [ollama.ai](https://ollama.ai)
-2. **Pull a model** that supports function calling:
 
-```bash
-# Recommended models with function calling support
-ollama pull llama3.2        # Meta's Llama 3.2 (recommended)
-ollama pull mistral         # Mistral AI's model
-ollama pull qwen2.5         # Alibaba's Qwen 2.5
-
-# Other popular models (check function calling support)
-ollama pull llama3.1        # Meta's Llama 3.1
-ollama pull neural-chat     # Intel's neural chat model
-```
-
-3. **Verify Ollama is running**:
+2. **Verify Ollama is running**:
 
 ```bash
 # Check if Ollama is running
@@ -380,7 +368,9 @@ curl http://localhost:11434/api/tags
 # Should return JSON with list of installed models
 ```
 
-4. **Run the Ollama chat**:
+3. **Run the Ollama chat**:
+
+The chat script will automatically pull the model if it's not already installed, so you can skip the manual `ollama pull` step!
 
 ```bash
 uv run python chat-ollama.py
@@ -402,7 +392,11 @@ uv run python chat-ollama.py --help
 You should see:
 
 ```
-Ollama MCP Chat - Discovering tools...
+Ollama MCP Chat
+----------------------------------------
+Checking if model 'llama3.2' exists... ✓
+Loading model 'llama3.2' into memory... ✓
+Discovering tools...
   - salesforce: 5 tools
   - jira: 3 tools
 
@@ -414,12 +408,30 @@ Type 'quit' or 'exit' to end
 You:
 ```
 
+**If the model isn't installed yet, it will be automatically pulled:**
+
+```
+Ollama MCP Chat
+----------------------------------------
+Checking if model 'llama3.2' exists... not found
+Pulling model 'llama3.2' from Ollama registry...
+  pulling manifest
+  pulling [layer details with progress]
+  verifying sha256 digest
+  writing manifest
+  removing any unused layers
+Successfully pulled model 'llama3.2' ✓
+Loading model 'llama3.2' into memory... ✓
+Discovering tools...
+```
+
 **Ollama-Specific Features:**
 
 - **100% Local**: All processing happens on your machine, no cloud API calls
 - **Privacy-Focused**: Your data never leaves your computer
 - **No API Costs**: Free to use, no usage limits
 - **Open-Source Models**: Access to llama3, mistral, qwen, and many more
+- **Automatic Model Management**: Models are automatically pulled if not installed
 - **Customizable**: Fine-tune models for your specific use case
 
 **Ollama Configuration** (optional, in `.env`):
@@ -447,6 +459,21 @@ OLLAMA_MODEL=llama3.2
 | llama3.1 | 8B | Yes | Advanced reasoning |
 
 **Note:** Not all Ollama models support function calling. For MCP tool integration, you must use a model that supports function calling (like those listed above). Check the model card on [ollama.ai/library](https://ollama.ai/library) for function calling support.
+
+**Manual Model Installation** (optional):
+
+If you prefer to manually install models before running the chat script:
+
+```bash
+# Recommended models with function calling support
+ollama pull llama3.2        # Meta's Llama 3.2 (recommended)
+ollama pull mistral         # Mistral AI's model
+ollama pull qwen2.5         # Alibaba's Qwen 2.5
+ollama pull llama3.1        # Meta's Llama 3.1
+
+# List installed models
+ollama list
+```
 
 #### Option D: LM Studio (Local)
 
@@ -962,17 +989,23 @@ If Ollama isn't running, start it:
 - **macOS/Linux**: Ollama starts automatically after installation, or run `ollama serve`
 - **Windows**: Launch Ollama from the Start menu or system tray
 
-### Ollama: "Model not found"
+### Ollama: "Model not found" or pull fails
 
-The model must be pulled before use:
+The chat script automatically pulls models that aren't installed. If the automatic pull fails:
 
 ```bash
-# Pull the model specified in your .env
+# Manually pull the model specified in your .env
 ollama pull llama3.2
 
 # Verify it's installed
 ollama list
 ```
+
+Common causes for pull failures:
+- No internet connection
+- Insufficient disk space
+- Ollama service not running properly
+- Model name typo in `.env` file
 
 ### Ollama: Tools not being called or incorrect responses
 
