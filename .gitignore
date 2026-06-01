@@ -1,6 +1,8 @@
 .env
 mcp_servers.json
 .mcp_tokens.json
+mcp_chat.db
+__pycache__/
 __pycache__/oauth_handler.cpython-312.pyc
 .DS_Store
 

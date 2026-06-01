@@ -8,6 +8,35 @@ A beginner-friendly Python chatbot that connects to Workato's Enterprise MCP ser
 - **Ollama** - Run open-source LLMs locally (llama3.2, mistral, qwen2.5, etc.)
 - **LM Studio** - Run local LLMs for privacy and cost savings
 
+## 🖥️ Web UI (Streamlit)
+
+In addition to the command-line scripts, there's a graphical web app that lets you:
+
+- **Chat** with any of the four providers (OpenAI, Claude, Ollama, LM Studio), with MCP tools called automatically
+- **Add / remove / configure MCP servers** — no hand-editing JSON
+- **Create and save reusable system prompts**, selectable per chat
+- **Manage API keys and OAuth** from a Settings page
+- **Persist conversations** so you can reopen past chats
+
+Everything is stored in a single SQLite database, `mcp_chat.db` (git-ignored). On
+first launch the app imports any existing `.env`, `mcp_servers.json`, and
+`.mcp_tokens.json`, so your current setup carries over. The CLI scripts are
+unchanged and keep using those files.
+
+### Run it
+
+```bash
+uv sync                       # installs streamlit + the other deps
+uv run streamlit run app.py   # opens http://localhost:8501
+```
+
+Then use the sidebar to pick a provider/model and system prompt, and the pages
+(left nav) to manage **MCP Servers**, **System Prompts**, and **Settings**.
+
+> Secrets are stored in `mcp_chat.db` as plaintext (the same exposure level as
+> `.env`), so keep the database file out of version control — it's already in
+> `.gitignore`.
+
 ## What Does This Do?
 
 This chatbot can:
@@ -61,6 +90,16 @@ simple-mcp-chat/
 ├── chat-lmstudio.py           # LM Studio version for local LLMs
 ├── oauth_handler.py           # OAuth 2.0 authentication handler with PKCE
 ├── troubleshoot_openai.py     # OpenAI connection troubleshooter
+│
+│   # --- Web UI (Streamlit) ---
+├── app.py                     # Streamlit entry point + Chat page
+├── pages/                     # MCP Servers, System Prompts, Settings pages
+├── db.py                      # SQLite store (servers, tokens, keys, prompts, chats)
+├── mcp_core.py                # Shared MCP client (discover + call tools)
+├── providers/                 # Unified chat backend for all four providers
+├── oauth_store.py             # DB-backed OAuth handler (subclasses oauth_handler)
+├── ui_common.py               # Shared Streamlit helpers
+├── mcp_chat.db                # SQLite database (auto-generated, don't commit!)
 ├── mcp_servers.json           # Your MCP server configs (don't commit this!)
 ├── mcp_servers.example.json   # Example server configuration
 ├── .mcp_tokens.json           # OAuth tokens storage (auto-generated, don't commit!)
