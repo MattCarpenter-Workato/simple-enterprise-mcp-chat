@@ -1,0 +1,119 @@
+"""Logs & benchmarking page.
+
+Browse per-chat logs and compare models (tokens / latency) and MCP servers/tools
+(latency / returned-data size) to tune them.
+"""
+
+import json
+
+import streamlit as st
+
+import db
+from ui_common import init_app
+
+st.set_page_config(page_title="Logs", page_icon="📊", layout="wide")
+init_app()
+
+st.title("📊 Logs & Benchmarking")
+
+# --- clear all logs (guarded) ------------------------------------------------
+with st.popover("🗑 Clear all logs"):
+    st.caption("Permanently deletes every log row across all conversations. "
+               "Chats and messages are not affected.")
+    confirm = st.checkbox("Yes, I'm sure", key="confirm_clear_all")
+    if st.button("Delete all logs", type="primary", disabled=not confirm):
+        removed = db.clear_all_logs()
+        st.success(f"Cleared {removed} log row(s).")
+        st.rerun()
+
+# =============================================================================
+# PER-CHAT LOGS
+# =============================================================================
+st.subheader("Per-conversation logs")
+
+convs = db.list_conversations()
+if not convs:
+    st.info("No conversations yet.")
+else:
+    labels = [f"{c['title']} (#{c['id']}, {c['provider']})" for c in convs]
+    idx = st.selectbox("Conversation", range(len(convs)), format_func=lambda i: labels[i])
+    conv = convs[idx]
+
+    u = db.conversation_usage(conv["id"])
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total tokens", f"{u['total_tokens']:,}")
+    c2.metric("LLM calls", u["llm_calls"])
+    c3.metric("LLM time", f"{(u['llm_ms'] or 0) / 1000:.1f}s")
+    c4.metric("Avg tool ms", int(u["avg_tool_ms"] or 0))
+
+    if st.button("🗑 Clear this conversation's logs", key="clear_conv_logs"):
+        removed = db.clear_logs(conv["id"])
+        st.success(f"Cleared {removed} log row(s).")
+        st.rerun()
+
+    logs = db.get_logs(conv["id"])
+    if logs:
+        st.dataframe(
+            [
+                {
+                    "time": r["created_at"][11:],
+                    "type": r["event_type"],
+                    "provider": r["provider"],
+                    "model": r["model"],
+                    "call_type": r["call_type"],
+                    "prompt_tok": r["prompt_tokens"],
+                    "completion_tok": r["completion_tokens"],
+                    "total_tok": r["total_tokens"],
+                    "ms": r["duration_ms"],
+                    "data_chars": r["data_chars"],
+                    "server": r["server"],
+                    "tools": r["tools"],
+                    "preview": (r["response_preview"] or
+                                (json.loads(r["detail_json"]).get("result_preview")
+                                 if r["detail_json"] else "")),
+                }
+                for r in logs
+            ],
+            width='stretch', hide_index=True,
+        )
+    else:
+        st.caption("No log entries for this conversation.")
+
+st.divider()
+
+# =============================================================================
+# MODEL COMPARISON
+# =============================================================================
+st.subheader("Models — tokens & latency")
+st.caption("Across all conversations. Use this to compare models/providers.")
+model_rows = db.usage_by_provider_model()
+if model_rows:
+    st.dataframe(model_rows, width='stretch', hide_index=True)
+    chart = {r["model"] or r["provider"]: (r["avg_ms"] or 0) for r in model_rows}
+    if chart:
+        st.bar_chart(chart, y_label="avg LLM latency (ms)")
+else:
+    st.caption("No LLM calls logged yet.")
+
+st.divider()
+
+# =============================================================================
+# MCP SERVER / TOOL COMPARISON
+# =============================================================================
+st.subheader("MCP servers & tools — latency & data size")
+st.caption("Across all conversations. Use this to tune which MCP servers to keep.")
+tool_rows = db.usage_by_server_tool()
+if tool_rows:
+    st.dataframe(tool_rows, width='stretch', hide_index=True)
+    # Average latency per server (aggregate the per-tool rows by server).
+    by_server: dict[str, list[int]] = {}
+    for r in tool_rows:
+        if r["server"]:
+            by_server.setdefault(r["server"], []).append(r["avg_ms"] or 0)
+    if by_server:
+        st.bar_chart(
+            {s: sum(v) / len(v) for s, v in by_server.items()},
+            y_label="avg round-trip (ms)",
+        )
+else:
+    st.caption("No MCP tool calls logged yet.")

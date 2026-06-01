@@ -8,6 +8,7 @@ a conversation should stay with the Claude provider (the conversation row record
 its provider).
 """
 
+import time
 from typing import Any
 
 from anthropic import Anthropic
@@ -40,7 +41,7 @@ class ClaudeProvider(Provider):
         if tools:
             kwargs["tools"] = tools
 
-        response = self.client.messages.create(**kwargs)
+        response = self._complete(kwargs, model, "initial_request", on_event)
 
         while response.stop_reason == "tool_use":
             messages.append({"role": "assistant", "content": self._serialize(response.content)})
@@ -58,11 +59,33 @@ class ClaudeProvider(Provider):
                     })
             messages.append({"role": "user", "content": tool_results})
 
-            response = self.client.messages.create(**kwargs)
+            response = self._complete(kwargs, model, "tool_followup", on_event)
 
         final_text = "\n".join(b.text for b in response.content if b.type == "text")
         messages.append({"role": "assistant", "content": self._serialize(response.content)})
         return final_text
+
+    def _complete(self, kwargs: dict, model: str, call_type: str, on_event: OnEvent):
+        """Make one API call, emit an llm_call event (tokens + latency), return response."""
+        t0 = time.perf_counter()
+        response = self.client.messages.create(**kwargs)
+        dur_ms = int((time.perf_counter() - t0) * 1000)
+
+        usage = getattr(response, "usage", None)
+        in_tok = getattr(usage, "input_tokens", None)
+        out_tok = getattr(usage, "output_tokens", None)
+        total = (in_tok or 0) + (out_tok or 0) if (in_tok is not None or out_tok is not None) else None
+        tools_requested = [b.name for b in response.content if b.type == "tool_use"]
+        preview = "\n".join(b.text for b in response.content if b.type == "text")[:200]
+        self._emit(
+            on_event, "llm_call",
+            provider=self.name, model=model, call_type=call_type,
+            prompt_tokens=in_tok, completion_tokens=out_tok, total_tokens=total,
+            duration_ms=dur_ms,
+            tools_requested=tools_requested,
+            response_preview=preview,
+        )
+        return response
 
     @staticmethod
     def _serialize(content) -> list[dict[str, Any]]:

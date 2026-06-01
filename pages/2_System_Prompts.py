@@ -18,14 +18,14 @@ for p in db.list_prompts():
             name = st.text_input("Name", value=p["name"])
             content = st.text_area("Prompt", value=p["content"], height=160)
             c1, c2 = st.columns(2)
-            if c1.form_submit_button("💾 Save", use_container_width=True):
+            if c1.form_submit_button("💾 Save", width='stretch'):
                 if name and content:
                     db.save_prompt(name, content, prompt_id=p["id"])
                     st.success("Saved.")
                     st.rerun()
                 else:
                     st.error("Name and prompt are required.")
-            if c2.form_submit_button("🗑 Delete", use_container_width=True):
+            if c2.form_submit_button("🗑 Delete", width='stretch'):
                 db.delete_prompt(p["id"])
                 st.rerun()
 

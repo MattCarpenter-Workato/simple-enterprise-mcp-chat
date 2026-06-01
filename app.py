@@ -9,6 +9,9 @@ Main: a chat interface backed by the MCP tool-calling providers. Everything
 Server, prompt, and key management live on the pages in pages/.
 """
 
+import json
+import time
+
 import streamlit as st
 
 import db
@@ -107,7 +110,7 @@ with st.sidebar:
     st.session_state.system_prompt_id = prompt_ids[prompt_labels.index(sel)]
 
     st.divider()
-    if st.button("➕ New chat", use_container_width=True):
+    if st.button("➕ New chat", width='stretch'):
         new_conversation()
         st.rerun()
 
@@ -116,7 +119,7 @@ with st.sidebar:
         cols = st.columns([0.8, 0.2])
         active = conv["id"] == st.session_state.conversation_id
         label = ("▶ " if active else "") + (conv["title"] or f"Chat {conv['id']}")
-        if cols[0].button(label, key=f"conv_{conv['id']}", use_container_width=True):
+        if cols[0].button(label, key=f"conv_{conv['id']}", width='stretch'):
             load_conversation(conv["id"])
             st.rerun()
         if cols[1].button("🗑", key=f"del_{conv['id']}"):
@@ -136,6 +139,40 @@ st.caption(f"Provider: **{provider_name}** · Model: **{st.session_state.model}*
 if disc_errors:
     st.warning("Some servers had issues: " +
                "; ".join(f"{k}: {v}" for k, v in disc_errors.items()))
+
+# Per-chat logs & token/latency usage.
+if st.session_state.conversation_id is not None:
+    with st.expander("📊 Logs & usage (this chat)"):
+        u = db.conversation_usage(st.session_state.conversation_id)
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Total tokens", f"{u['total_tokens']:,}")
+        c2.metric("Prompt tokens", f"{u['prompt_tokens']:,}")
+        c3.metric("Completion tokens", f"{u['completion_tokens']:,}")
+        c4.metric("LLM time", f"{(u['llm_ms'] or 0) / 1000:.1f}s")
+        c5.metric("Tool calls", u["tool_calls"])
+        logs = db.get_logs(st.session_state.conversation_id)
+        if logs:
+            st.dataframe(
+                [
+                    {
+                        "time": r["created_at"][11:],
+                        "type": r["event_type"],
+                        "model": r["model"],
+                        "tokens": r["total_tokens"],
+                        "ms": r["duration_ms"],
+                        "data_chars": r["data_chars"],
+                        "server": r["server"],
+                        "tools": r["tools"],
+                        "preview": (r["response_preview"] or
+                                    (json.loads(r["detail_json"]).get("result_preview")
+                                     if r["detail_json"] else "")),
+                    }
+                    for r in logs
+                ],
+                width='stretch', hide_index=True,
+            )
+        else:
+            st.caption("No log entries yet for this chat.")
 
 render_history(st.session_state.messages)
 
@@ -170,25 +207,64 @@ if prompt:
     inject_date = (db.get_secret("INJECT_CURRENT_DATE", "true") or "true").lower() == "true"
     sys_prompt = effective_system_prompt(base_prompt, inject_date)
 
+    model = st.session_state.model
+
+    def server_of(tool_name: str):
+        return tool_name.split("__")[0] if "__" in tool_name else None
+
+    # Time each MCP round-trip and log it (server, latency, returned data size).
+    def logged_call_tool(name: str, arguments: dict) -> str:
+        t0 = time.perf_counter()
+        result = client.call_tool(name, arguments)
+        dur = int((time.perf_counter() - t0) * 1000)
+        db.add_log(
+            conv_id, event_type="tool_call", provider=provider_name, model=model,
+            duration_ms=dur, data_chars=len(result or ""),
+            server=server_of(name), servers=server_of(name), tools=name,
+            user_prompt=prompt,
+            detail_json=json.dumps({"arguments": arguments,
+                                    "result_preview": str(result)[:300]}),
+        )
+        return result
+
+    def on_event(kind: str, payload: dict) -> None:
+        if kind == "tool_call":
+            status.write(f"🔧 Calling `{payload['name']}`…")
+        elif kind == "tool_result":
+            preview = str(payload["result"])[:120]
+            status.write(f"✓ `{payload['name']}` → {preview}")
+        elif kind == "llm_call":
+            requested = payload.get("tools_requested") or []
+            servers = sorted({server_of(t) for t in requested if server_of(t)})
+            db.add_log(
+                conv_id, event_type="llm_call",
+                provider=payload.get("provider", provider_name),
+                model=payload.get("model", model),
+                call_type=payload.get("call_type"),
+                prompt_tokens=payload.get("prompt_tokens"),
+                completion_tokens=payload.get("completion_tokens"),
+                total_tokens=payload.get("total_tokens"),
+                duration_ms=payload.get("duration_ms"),
+                user_prompt=prompt, system_prompt=sys_prompt,
+                servers=",".join(servers), tools=",".join(requested),
+                response_preview=payload.get("response_preview"),
+            )
+
     pre_len = len(st.session_state.messages)
     with st.chat_message("assistant"):
         try:
             with st.status("Generating…", expanded=True) as status:
-                def on_event(kind: str, payload: dict) -> None:
-                    if kind == "tool_call":
-                        status.write(f"🔧 Calling `{payload['name']}`…")
-                    elif kind == "tool_result":
-                        preview = str(payload["result"])[:120]
-                        status.write(f"✓ `{payload['name']}` → {preview}")
-
                 final_text = provider.chat_turn(
                     st.session_state.messages, tools, sys_prompt,
-                    st.session_state.model, client.call_tool, on_event,
+                    model, logged_call_tool, on_event,
                 )
                 status.update(label="Done", state="complete", expanded=False)
             st.markdown(final_text or "_(no response)_")
         except Exception as e:  # noqa: BLE001
             st.error(f"Error: {e}")
+            db.add_log(conv_id, event_type="error", provider=provider_name,
+                       model=model, user_prompt=prompt,
+                       detail_json=json.dumps({"error": str(e)}))
             # Roll back the user turn we optimistically added.
             del st.session_state.messages[pre_len - 1:]
             st.stop()

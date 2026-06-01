@@ -8,6 +8,7 @@ chat-openai.py.
 """
 
 import json
+import time
 from typing import Any, Optional
 
 from openai import OpenAI
@@ -44,8 +45,7 @@ class OpenAILikeProvider(Provider):
         if tools:
             kwargs["tools"] = tools
 
-        response = self.client.chat.completions.create(**kwargs)
-        msg = response.choices[0].message
+        msg = self._complete(kwargs, model, "initial_request", on_event)
 
         while msg.tool_calls:
             # Record the assistant's tool request (serializable form).
@@ -73,11 +73,31 @@ class OpenAILikeProvider(Provider):
                 self._emit(on_event, "tool_result", name=name, result=result)
                 convo.append({"role": "tool", "tool_call_id": tc.id, "content": result})
 
-            response = self.client.chat.completions.create(**kwargs)
-            msg = response.choices[0].message
+            msg = self._complete(kwargs, model, "tool_followup", on_event)
 
         final_text = msg.content or ""
         # Mirror the new turns (minus the system message) back into the caller's list.
         messages[:] = [m for m in convo if m.get("role") != "system"]
         messages.append({"role": "assistant", "content": final_text})
         return final_text
+
+    def _complete(self, kwargs: dict, model: str, call_type: str, on_event: OnEvent):
+        """Make one API call, emit an llm_call event (tokens + latency), return msg."""
+        t0 = time.perf_counter()
+        response = self.client.chat.completions.create(**kwargs)
+        dur_ms = int((time.perf_counter() - t0) * 1000)
+
+        msg = response.choices[0].message
+        usage = getattr(response, "usage", None)
+        tools_requested = [tc.function.name for tc in (msg.tool_calls or [])]
+        self._emit(
+            on_event, "llm_call",
+            provider=self.name, model=model, call_type=call_type,
+            prompt_tokens=getattr(usage, "prompt_tokens", None),
+            completion_tokens=getattr(usage, "completion_tokens", None),
+            total_tokens=getattr(usage, "total_tokens", None),
+            duration_ms=dur_ms,
+            tools_requested=tools_requested,
+            response_preview=(msg.content or "")[:200],
+        )
+        return msg

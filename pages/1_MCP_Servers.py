@@ -45,7 +45,7 @@ for s in servers:
             enabled = st.checkbox("Enabled", value=s["enabled"])
 
             c1, c2 = st.columns(2)
-            if c1.form_submit_button("💾 Save", use_container_width=True):
+            if c1.form_submit_button("💾 Save", width='stretch'):
                 oauth = None
                 if auth_type == "token" and token:
                     oauth = {"token": token}
@@ -59,7 +59,7 @@ for s in servers:
                                  enabled=enabled, oauth=oauth)
                 st.success("Saved.")
                 st.rerun()
-            if c2.form_submit_button("🗑 Delete", use_container_width=True):
+            if c2.form_submit_button("🗑 Delete", width='stretch'):
                 db.remove_server(s["id"])
                 st.rerun()
 

@@ -98,6 +98,30 @@ def _init_schema(conn: sqlite3.Connection) -> None:
             created_at      TEXT NOT NULL,
             FOREIGN KEY (conversation_id) REFERENCES conversations(id)
         );
+
+        CREATE TABLE IF NOT EXISTS chat_logs (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id   INTEGER NOT NULL,
+            created_at        TEXT NOT NULL,
+            event_type        TEXT NOT NULL,   -- 'llm_call' | 'tool_call' | 'error'
+            provider          TEXT,
+            model             TEXT,
+            call_type         TEXT,            -- 'initial_request' | 'tool_followup'
+            prompt_tokens     INTEGER,
+            completion_tokens INTEGER,
+            total_tokens      INTEGER,
+            duration_ms       INTEGER,         -- LLM latency or MCP round-trip
+            data_chars        INTEGER,         -- size of MCP tool result
+            server            TEXT,            -- MCP server name (tool_call)
+            user_prompt       TEXT,
+            system_prompt     TEXT,
+            servers           TEXT,            -- comma-separated
+            tools             TEXT,            -- comma-separated
+            response_preview  TEXT,
+            detail_json       TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_chat_logs_conv ON chat_logs(conversation_id);
         """
     )
     conn.commit()
@@ -300,6 +324,7 @@ def rename_conversation(conversation_id: int, title: str) -> None:
 def delete_conversation(conversation_id: int) -> None:
     conn = get_conn()
     conn.execute("DELETE FROM messages WHERE conversation_id = ?", (conversation_id,))
+    conn.execute("DELETE FROM chat_logs WHERE conversation_id = ?", (conversation_id,))
     conn.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
     conn.commit()
 
@@ -335,6 +360,115 @@ def get_messages(conversation_id: int) -> list[dict[str, Any]]:
             pass
         out.append({"role": r["role"], "content": content})
     return out
+
+
+# =============================================================================
+# CHAT LOGS (per-call token usage, timing, and tool/server tracking)
+# =============================================================================
+
+_LOG_COLUMNS = (
+    "event_type", "provider", "model", "call_type",
+    "prompt_tokens", "completion_tokens", "total_tokens",
+    "duration_ms", "data_chars", "server",
+    "user_prompt", "system_prompt", "servers", "tools",
+    "response_preview", "detail_json",
+)
+
+
+def add_log(conversation_id: int, **fields) -> None:
+    """Insert one log row. Unknown keys are ignored; absent columns default NULL."""
+    cols = ["conversation_id", "created_at"]
+    vals: list[Any] = [conversation_id, _now()]
+    for col in _LOG_COLUMNS:
+        if col in fields:
+            cols.append(col)
+            vals.append(fields[col])
+    placeholders = ", ".join("?" for _ in cols)
+    conn = get_conn()
+    conn.execute(
+        f"INSERT INTO chat_logs ({', '.join(cols)}) VALUES ({placeholders})", vals
+    )
+    conn.commit()
+
+
+def get_logs(conversation_id: int) -> list[dict[str, Any]]:
+    rows = get_conn().execute(
+        "SELECT * FROM chat_logs WHERE conversation_id = ? ORDER BY id",
+        (conversation_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def clear_logs(conversation_id: int) -> int:
+    """Delete all log rows for one conversation. Returns rows removed."""
+    conn = get_conn()
+    cur = conn.execute("DELETE FROM chat_logs WHERE conversation_id = ?", (conversation_id,))
+    conn.commit()
+    return cur.rowcount
+
+
+def clear_all_logs() -> int:
+    """Delete every log row across all conversations. Returns rows removed."""
+    conn = get_conn()
+    cur = conn.execute("DELETE FROM chat_logs")
+    conn.commit()
+    return cur.rowcount
+
+
+def conversation_usage(conversation_id: int) -> dict[str, Any]:
+    """Aggregate token + timing stats for a single conversation."""
+    r = get_conn().execute(
+        """
+        SELECT
+            COALESCE(SUM(prompt_tokens), 0)     AS prompt_tokens,
+            COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+            COALESCE(SUM(total_tokens), 0)      AS total_tokens,
+            COALESCE(SUM(CASE WHEN event_type='llm_call'  THEN 1 ELSE 0 END), 0) AS llm_calls,
+            COALESCE(SUM(CASE WHEN event_type='tool_call' THEN 1 ELSE 0 END), 0) AS tool_calls,
+            COALESCE(SUM(CASE WHEN event_type='llm_call'  THEN duration_ms END), 0) AS llm_ms,
+            ROUND(AVG(CASE WHEN event_type='tool_call' THEN duration_ms END), 0)    AS avg_tool_ms
+        FROM chat_logs WHERE conversation_id = ?
+        """,
+        (conversation_id,),
+    ).fetchone()
+    return dict(r)
+
+
+def usage_by_provider_model() -> list[dict[str, Any]]:
+    """Per provider+model token totals and average LLM latency (model tuning)."""
+    rows = get_conn().execute(
+        """
+        SELECT provider, model,
+               COUNT(*)                       AS calls,
+               COALESCE(SUM(prompt_tokens), 0)     AS prompt_tokens,
+               COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+               COALESCE(SUM(total_tokens), 0)      AS total_tokens,
+               ROUND(AVG(duration_ms), 0)     AS avg_ms
+        FROM chat_logs
+        WHERE event_type = 'llm_call'
+        GROUP BY provider, model
+        ORDER BY total_tokens DESC
+        """
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def usage_by_server_tool() -> list[dict[str, Any]]:
+    """Per server+tool call count, latency, and returned-data size (MCP tuning)."""
+    rows = get_conn().execute(
+        """
+        SELECT server, tools AS tool,
+               COUNT(*)                   AS calls,
+               ROUND(AVG(duration_ms), 0) AS avg_ms,
+               MAX(duration_ms)           AS max_ms,
+               ROUND(AVG(data_chars), 0)  AS avg_data_chars
+        FROM chat_logs
+        WHERE event_type = 'tool_call'
+        GROUP BY server, tools
+        ORDER BY calls DESC
+        """
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 # =============================================================================
