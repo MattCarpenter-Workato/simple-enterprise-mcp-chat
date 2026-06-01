@@ -69,20 +69,33 @@ st.session_state.setdefault("system_prompt_id", None)
 with st.sidebar:
     st.header("💬 MCP Chat")
 
-    # Provider + model
+    # Provider + model. Once a conversation has started it is locked to the
+    # provider/model it began with — switching mid-chat would send one provider's
+    # message format to another's API. Use ➕ New chat to pick a different model.
+    locked = st.session_state.conversation_id is not None and len(st.session_state.messages) > 0
+
     provider_name = st.selectbox(
         "Provider", providers.PROVIDER_NAMES,
         index=providers.PROVIDER_NAMES.index(st.session_state.provider),
+        disabled=locked,
     )
-    if provider_name != st.session_state.provider:
+    if not locked and provider_name != st.session_state.provider:
         st.session_state.provider = provider_name
         st.session_state.model = providers.default_model(provider_name)
 
     model_opts = providers.model_options(provider_name)
-    cur_model = st.session_state.model if st.session_state.model in model_opts else model_opts[0]
+    # Guarantee the active model is selectable so a locked chat never falls back
+    # to opts[0].
+    if st.session_state.model not in model_opts:
+        model_opts = [st.session_state.model] + model_opts
     st.session_state.model = st.selectbox(
-        "Model", model_opts, index=model_opts.index(cur_model)
+        "Model", model_opts, index=model_opts.index(st.session_state.model),
+        disabled=locked,
     )
+
+    if locked:
+        st.caption(f"🔒 Locked to **{st.session_state.provider}** for this chat — "
+                   "click ➕ New chat to use a different model.")
 
     # System prompt
     prompts = db.list_prompts()
