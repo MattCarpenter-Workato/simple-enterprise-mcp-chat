@@ -33,6 +33,7 @@ PLAIN_FIELDS = [
     ("OLLAMA_MODEL", "Ollama model", "llama3.2"),
     ("LMSTUDIO_BASE_URL", "LM Studio base URL", "http://localhost:1234/v1"),
     ("LMSTUDIO_MODEL", "LM Studio model", "local-model"),
+    ("APP_LOG_LEVEL", "App log level (DEBUG/INFO/WARNING/ERROR) — restart to apply", "INFO"),
 ]
 
 st.subheader("API keys")

@@ -11,12 +11,15 @@ from typing import Any, Optional
 import streamlit as st
 
 import db
+from logging_setup import configure_logging
 
 
 @st.cache_resource
 def init_app() -> bool:
-    """Run once per server process: create schema + import legacy file config."""
+    """Run once per server process: create schema, import legacy file config, and
+    set up app-level file logging."""
     db.seed_from_files_if_empty()
+    configure_logging(db.get_secret("APP_LOG_LEVEL", "INFO"))
     return True
 
 

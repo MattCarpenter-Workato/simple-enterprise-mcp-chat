@@ -188,6 +188,15 @@ This makes cost/performance tradeoffs visible — e.g. spotting when a model iss
 broad MCP query that returns a huge payload, inflating the next call's prompt tokens
 and latency.
 
+### App log (file) vs conversation logs (DB)
+Two distinct layers of observability:
+- **Conversation logs** (above) live in the database — per-turn tokens, tools, and
+  timing for *what happened in a chat*.
+- **App log** is a rotating file, `logs/app.log`, capturing *whether the app itself
+  is healthy* — errors, tracebacks, and MCP/OAuth failures. View or clear its tail
+  from the **🐞 App log** section at the bottom of the Logs page; set the verbosity
+  via **App log level** in Settings (restart to apply).
+
 ### Current date/time injection
 With **"Inject current date/time"** enabled in Settings (default on), the current
 date/time is appended to the system prompt so the model can resolve relative dates

@@ -5,11 +5,13 @@ Browse per-chat logs and compare models (tokens / latency) and MCP servers/tools
 """
 
 import json
+import os
 
 import streamlit as st
 
 import db
 from ui_common import init_app
+from logging_setup import APP_LOG_PATH, read_tail, clear_log
 
 st.set_page_config(page_title="Logs", page_icon="📊", layout="wide")
 init_app()
@@ -117,3 +119,20 @@ if tool_rows:
         )
 else:
     st.caption("No MCP tool calls logged yet.")
+
+st.divider()
+
+# =============================================================================
+# APP LOG (file-based) — app health, distinct from the per-conversation logs above
+# =============================================================================
+st.subheader("🐞 App log")
+st.caption(f"Application errors & events from `{os.path.relpath(APP_LOG_PATH)}` "
+           "(rotating file). Separate from the conversation logs above.")
+c1, c2 = st.columns([0.25, 0.75])
+n_lines = c1.number_input("Lines to show", min_value=20, max_value=2000,
+                          value=200, step=20)
+if c2.button("🗑 Clear app log"):
+    clear_log()
+    st.rerun()
+tail = read_tail(int(n_lines))
+st.code(tail or "(app log is empty)", language="log")

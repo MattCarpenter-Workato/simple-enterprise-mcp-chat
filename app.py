@@ -10,6 +10,7 @@ Server, prompt, and key management live on the pages in pages/.
 """
 
 import json
+import logging
 import time
 
 import streamlit as st
@@ -21,6 +22,8 @@ from ui_common import init_app, render_history, effective_system_prompt
 
 st.set_page_config(page_title="MCP Chat", page_icon="💬", layout="wide")
 init_app()
+
+logger = logging.getLogger("mcpchat.app")
 
 
 @st.cache_resource
@@ -182,6 +185,7 @@ if prompt:
     try:
         provider = providers.get_provider(provider_name)
     except ValueError as e:
+        logger.warning("Provider unavailable (%s): %s", provider_name, e)
         st.error(str(e))
         st.stop()
 
@@ -261,6 +265,8 @@ if prompt:
                 status.update(label="Done", state="complete", expanded=False)
             st.markdown(final_text or "_(no response)_")
         except Exception as e:  # noqa: BLE001
+            logger.exception("Chat turn failed (conv=%s provider=%s model=%s)",
+                             conv_id, provider_name, model)
             st.error(f"Error: {e}")
             db.add_log(conv_id, event_type="error", provider=provider_name,
                        model=model, user_prompt=prompt,
