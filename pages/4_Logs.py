@@ -20,12 +20,14 @@ st.title("📊 Logs & Benchmarking")
 
 # --- clear all logs (guarded) ------------------------------------------------
 with st.popover("🗑 Clear all logs"):
-    st.caption("Permanently deletes every log row across all conversations. "
-               "Chats and messages are not affected.")
+    st.caption("Permanently deletes every conversation log row (across all "
+               "conversations) and clears the app log file. Chats and messages "
+               "are not affected.")
     confirm = st.checkbox("Yes, I'm sure", key="confirm_clear_all")
     if st.button("Delete all logs", type="primary", disabled=not confirm):
         removed = db.clear_all_logs()
-        st.success(f"Cleared {removed} log row(s).")
+        clear_log()
+        st.success(f"Cleared {removed} conversation log row(s) and the app log.")
         st.rerun()
 
 # =============================================================================
@@ -107,11 +109,6 @@ else:
     c2.metric("LLM calls", u["llm_calls"])
     c3.metric("LLM time", f"{(u['llm_ms'] or 0) / 1000:.1f}s")
     c4.metric("Avg tool ms", int(u["avg_tool_ms"] or 0))
-
-    if st.button("🗑 Clear this conversation's logs", key="clear_conv_logs"):
-        removed = db.clear_logs(conv["id"])
-        st.success(f"Cleared {removed} log row(s).")
-        st.rerun()
 
     logs = db.get_logs(conv["id"])
     if logs:

@@ -9,10 +9,10 @@ Secrets are stored in plaintext (same exposure level as the .env approach used b
 the CLI scripts, just centralized). The file is created on first import via
 CREATE TABLE IF NOT EXISTS.
 
-On first run, seed_from_files_if_empty() imports any existing .env,
-mcp_servers.json, and .mcp_tokens.json so the user doesn't have to re-enter
-anything. This is one-way: the UI never writes back to those files, so the legacy
-CLI scripts keep working from their own file-based config.
+On first run, seed_from_files_if_empty() imports any existing .env and
+mcp_servers.json so the user doesn't have to re-enter anything. This is one-way:
+the UI never writes back to those files. OAuth tokens are not seeded from a file —
+they live only in the DB, written by the OAuth flow (oauth_store.py).
 """
 
 import os
@@ -208,7 +208,7 @@ def remove_server(server_id: int) -> None:
 
 
 # =============================================================================
-# OAUTH TOKENS (replaces .mcp_tokens.json)
+# OAUTH TOKENS (written by the OAuth flow in oauth_store.py)
 # =============================================================================
 
 def get_oauth_token(server_name: str) -> Optional[dict[str, Any]]:
@@ -413,14 +413,6 @@ def all_logs() -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
-def clear_logs(conversation_id: int) -> int:
-    """Delete all log rows for one conversation. Returns rows removed."""
-    conn = get_conn()
-    cur = conn.execute("DELETE FROM chat_logs WHERE conversation_id = ?", (conversation_id,))
-    conn.commit()
-    return cur.rowcount
-
-
 def clear_all_logs() -> int:
     """Delete every log row across all conversations. Returns rows removed."""
     conn = get_conn()
@@ -492,8 +484,9 @@ def usage_by_server_tool() -> list[dict[str, Any]]:
 def seed_from_files_if_empty() -> None:
     """If the DB has never been seeded, import existing file-based config.
 
-    Reads .env, mcp_servers.json, and .mcp_tokens.json from the repo root. Marked
-    done via a sentinel secret so we never clobber later edits. One-way only.
+    Reads .env and mcp_servers.json from the repo root. Marked done via a sentinel
+    secret so we never clobber later edits. One-way only. (OAuth tokens are not
+    imported — they live only in the DB, written by the OAuth flow.)
     """
     conn = get_conn()
     if get_secret("_seeded") == "1":
@@ -531,17 +524,8 @@ def seed_from_files_if_empty() -> None:
         except Exception:
             pass
 
-    # --- .mcp_tokens.json -> oauth_tokens ---
-    tokens_path = os.path.join(root, ".mcp_tokens.json")
-    if os.path.exists(tokens_path):
-        try:
-            with open(tokens_path, "r", encoding="utf-8") as f:
-                tokens = json.load(f)
-            for server_name, data in tokens.items():
-                if isinstance(data, dict) and not get_oauth_token(server_name):
-                    set_oauth_token(server_name, data)
-        except Exception:
-            pass
+    # OAuth tokens are not seeded from a file: they live only in the DB, written
+    # by the OAuth flow (oauth_store.py). Re-authenticate via the MCP Servers page.
 
     set_secret("_seeded", "1")
     conn.commit()

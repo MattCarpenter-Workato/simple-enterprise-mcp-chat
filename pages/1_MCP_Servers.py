@@ -6,7 +6,7 @@ import streamlit as st
 
 import db
 from ui_common import init_app
-from oauth_store import DBOAuthHandler
+from oauth_store import OAuthHandler
 
 st.set_page_config(page_title="MCP Servers", page_icon="🔌", layout="wide")
 init_app()
@@ -73,7 +73,7 @@ for s in servers:
             if st.button("🔐 Re-authenticate (opens browser)", key=f"auth_{s['id']}"):
                 with st.spinner("Completing OAuth in your browser…"):
                     try:
-                        handler = DBOAuthHandler(s["name"], s["url"], s.get("oauth"))
+                        handler = OAuthHandler(s["name"], s["url"], s.get("oauth"))
                         token = handler.authorize()
                         if token:
                             st.success("Authenticated.")

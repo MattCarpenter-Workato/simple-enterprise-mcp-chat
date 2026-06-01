@@ -30,9 +30,10 @@ Then:
 2. Open **🔌 MCP Servers** and add/enable a server (and authenticate if it uses OAuth).
 3. Go back to the chat, pick a provider/model in the sidebar, and start chatting.
 
-If you previously used the command-line version, your existing `.env`,
-`mcp_servers.json`, and `.mcp_tokens.json` are **imported automatically** into the
-database on first launch — your setup carries over with no manual steps.
+If you previously used the command-line version, your existing `.env` and
+`mcp_servers.json` are **imported automatically** into the database on first
+launch — your setup carries over with no manual steps. (OAuth tokens aren't
+imported; click **🔐 Re-authenticate** on the MCP Servers page once.)
 
 ---
 
@@ -214,8 +215,8 @@ messages, and logs.
 > exposure level as a `.env` file, just centralized. Keep the database out of version
 > control (it's already in `.gitignore`).
 
-On first launch the app imports any existing `.env`, `mcp_servers.json`, and
-`.mcp_tokens.json`, then is fully DB-driven.
+On first launch the app imports any existing `.env` and `mcp_servers.json`, then
+is fully DB-driven.
 
 ---
 
@@ -228,8 +229,7 @@ simple-mcp-chat/
 ├── providers/                 # Unified chat backend (OpenAI-compatible + Claude)
 ├── mcp_core.py                # Shared MCP client (discover + call tools)
 ├── db.py                      # SQLite store (servers, tokens, keys, prompts, chats, logs)
-├── oauth_store.py             # DB-backed OAuth handler (subclasses oauth_handler)
-├── oauth_handler.py           # OAuth 2.0 / PKCE flow (auto-discovery + registration)
+├── oauth_store.py             # OAuth 2.0 / PKCE flow with DB-backed token storage
 ├── ui_common.py               # Shared Streamlit helpers
 ├── mcp_chat.db                # SQLite database (auto-generated, don't commit!)
 ├── mcp_servers.json           # Legacy seed config (optional, imported once)
