@@ -29,6 +29,66 @@ with st.popover("🗑 Clear all logs"):
         st.rerun()
 
 # =============================================================================
+# ALL LOG ENTRIES (global, CSV-exportable)
+# =============================================================================
+st.subheader("All conversation log entries")
+all_rows = db.all_logs()
+if all_rows:
+    st.caption(f"{len(all_rows)} entries — hover the table and click ⬇ to export to CSV.")
+
+    def _preview(r: dict) -> str:
+        if r["response_preview"]:
+            return r["response_preview"]
+        if r["detail_json"]:
+            try:
+                return json.loads(r["detail_json"]).get("result_preview", "")
+            except (json.JSONDecodeError, TypeError):
+                return ""
+        return ""
+
+    def _arguments(r: dict) -> str:
+        if r["detail_json"]:
+            try:
+                args = json.loads(r["detail_json"]).get("arguments")
+                return json.dumps(args) if args is not None else ""
+            except (json.JSONDecodeError, TypeError):
+                return ""
+        return ""
+
+    st.dataframe(
+        [
+            {
+                "id": r["id"],
+                "created_at": r["created_at"],
+                "conversation": r["conversation"],
+                "conversation_id": r["conversation_id"],
+                "event_type": r["event_type"],
+                "provider": r["provider"],
+                "model": r["model"],
+                "call_type": r["call_type"],
+                "prompt_tokens": r["prompt_tokens"],
+                "completion_tokens": r["completion_tokens"],
+                "total_tokens": r["total_tokens"],
+                "duration_ms": r["duration_ms"],
+                "data_chars": r["data_chars"],
+                "server": r["server"],
+                "servers": r["servers"],
+                "tools": r["tools"],
+                "arguments": _arguments(r),
+                "user_prompt": r["user_prompt"],
+                "system_prompt": r["system_prompt"],
+                "preview": _preview(r),
+            }
+            for r in all_rows
+        ],
+        width='stretch', hide_index=True,
+    )
+else:
+    st.caption("No log entries yet.")
+
+st.divider()
+
+# =============================================================================
 # PER-CHAT LOGS
 # =============================================================================
 st.subheader("Per-conversation logs")

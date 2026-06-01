@@ -399,6 +399,20 @@ def get_logs(conversation_id: int) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+def all_logs() -> list[dict[str, Any]]:
+    """Every log row across all conversations, joined to its conversation title.
+    Used for the global, CSV-exportable table on the Logs page."""
+    rows = get_conn().execute(
+        """
+        SELECT c.title AS conversation, cl.*
+        FROM chat_logs cl
+        LEFT JOIN conversations c ON c.id = cl.conversation_id
+        ORDER BY cl.created_at DESC, cl.id DESC
+        """
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def clear_logs(conversation_id: int) -> int:
     """Delete all log rows for one conversation. Returns rows removed."""
     conn = get_conn()
