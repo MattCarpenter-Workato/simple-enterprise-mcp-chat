@@ -58,6 +58,13 @@ with st.form("settings"):
         "Inject current date/time into the system prompt",
         value=(db.get_secret("INJECT_CURRENT_DATE", "true") or "true").lower() == "true",
     )
+    debug_io = st.checkbox(
+        "Debug: log full tool call & response to the app log file",
+        value=(db.get_secret("DEBUG_TOOL_IO", "false") or "false").lower() == "true",
+        help="Writes each MCP tool call's full arguments, response headers, body, "
+             "and any detected Workato job ID to logs/app.log (viewable on the Logs "
+             "page). The database keeps only a concise preview either way.",
+    )
 
     if st.form_submit_button("💾 Save settings"):
         for key, value in secret_inputs.items():
@@ -66,6 +73,7 @@ with st.form("settings"):
         for key, value in plain_inputs.items():
             db.set_secret(key, value)
         db.set_secret("INJECT_CURRENT_DATE", "true" if inject else "false")
+        db.set_secret("DEBUG_TOOL_IO", "true" if debug_io else "false")
         st.success("Settings saved.")
         st.rerun()
 

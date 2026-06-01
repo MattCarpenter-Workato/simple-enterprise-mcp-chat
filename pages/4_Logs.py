@@ -18,8 +18,10 @@ init_app()
 
 st.title("📊 Logs & Benchmarking")
 
-# --- clear all logs (guarded) ------------------------------------------------
-with st.popover("🗑 Clear all logs"):
+# --- destructive bulk actions (guarded) --------------------------------------
+col_logs, col_convs = st.columns(2)
+
+with col_logs.popover("🗑 Clear all logs"):
     st.caption("Permanently deletes every conversation log row (across all "
                "conversations) and clears the app log file. Chats and messages "
                "are not affected.")
@@ -28,6 +30,19 @@ with st.popover("🗑 Clear all logs"):
         removed = db.clear_all_logs()
         clear_log()
         st.success(f"Cleared {removed} conversation log row(s) and the app log.")
+        st.rerun()
+
+with col_convs.popover("🗑 Delete all conversations"):
+    st.caption("Permanently deletes ALL conversations and their messages (and "
+               "their logs). Servers, keys, and saved prompts are kept.")
+    confirm_convs = st.checkbox("Yes, delete all chats", key="confirm_del_convs")
+    if st.button("Delete all conversations", type="primary", disabled=not confirm_convs):
+        removed = db.delete_all_conversations()
+        # Reset the Chat page's active conversation so it doesn't point at a
+        # deleted row (session state is shared across pages).
+        st.session_state["conversation_id"] = None
+        st.session_state["messages"] = []
+        st.success(f"Deleted {removed} conversation(s).")
         st.rerun()
 
 # =============================================================================

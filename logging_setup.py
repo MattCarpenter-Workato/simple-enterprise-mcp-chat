@@ -67,6 +67,10 @@ def read_tail(max_lines: int = 200) -> str:
 
 
 def clear_log() -> None:
-    """Truncate the app log file."""
-    if os.path.exists(APP_LOG_PATH):
-        open(APP_LOG_PATH, "w", encoding="utf-8").close()
+    """Truncate the app log file (best-effort; never raises into the UI)."""
+    try:
+        if os.path.exists(APP_LOG_PATH):
+            with open(APP_LOG_PATH, "w", encoding="utf-8"):
+                pass
+    except OSError:
+        pass

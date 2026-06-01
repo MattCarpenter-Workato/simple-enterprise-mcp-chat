@@ -198,6 +198,13 @@ Two distinct layers of observability:
   from the **🐞 App log** section at the bottom of the Logs page; set the verbosity
   via **App log level** in Settings (restart to apply).
 
+**Full tool-I/O debug (opt-in):** enable **"Debug: log full tool call & response to
+the app log file"** in Settings to write each MCP tool call's complete arguments,
+response headers, body, and any detected Workato job ID to `logs/app.log`. It's off
+by default (the payloads can be large); the database always keeps only a concise
+preview. A "job ID" is auto-detected from response headers/body when present — note
+that read-only Workato tools may not return one.
+
 ### Current date/time injection
 With **"Inject current date/time"** enabled in Settings (default on), the current
 date/time is appended to the system prompt so the model can resolve relative dates

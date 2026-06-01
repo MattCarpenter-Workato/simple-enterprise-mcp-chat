@@ -31,6 +31,10 @@ class MCPClient:
         self.servers: dict[str, str] = {}              # name -> url
         self.headers: dict[str, dict[str, str]] = {}   # name -> http headers
         self.errors: dict[str, str] = {}               # name -> error message
+        # Captured from the most recent request() — used for verbose file logging.
+        self.last_response_headers: dict[str, str] = {}
+        self.last_response_body: Any = None
+        self.last_job_id: Optional[str] = None
 
     # -- connection / auth ----------------------------------------------------
 
@@ -67,6 +71,8 @@ class MCPClient:
         response.raise_for_status()
         data = response.json()
         logger.debug("MCP RESPONSE status=%s", response.status_code)
+        self.last_response_headers = dict(response.headers)
+        self.last_response_body = data
         return data
 
     # -- discovery ------------------------------------------------------------
@@ -112,18 +118,63 @@ class MCPClient:
                 return (f"Error: Unknown server '{server_name}'. "
                         f"Available servers: {list(self.servers.keys())}")
 
+            self.last_job_id = None
             result = self.request(
                 self.servers[server_name],
                 "tools/call",
                 {"name": tool_name, "arguments": arguments},
                 headers=self.headers.get(server_name),
             )
+            self.last_job_id = self._detect_job_id(self.last_response_headers, result)
             content = result.get("result", {}).get("content", [])
             if content:
                 return content[0].get("text", str(result))
             return str(result.get("result", result))
         except Exception as e:  # noqa: BLE001
             return f"Error calling tool: {e}"
+
+    # Header/body keys (normalized to alphanumerics) that look like a correlation
+    # ID we could line up against Workato's job logs.
+    _JOB_ID_KEYS = {
+        "jobid", "job", "runid", "executionid", "requestid", "traceid",
+        "correlationid", "workatojobid", "xrequestid", "xworkatojobid",
+        "xcorrelationid", "xtraceid",
+    }
+
+    @classmethod
+    def _detect_job_id(cls, headers: dict, body: Any) -> Optional[str]:
+        """Best-effort scan of response headers + body (including JSON embedded in
+        string fields) for anything resembling a Workato job/correlation ID."""
+        norm = lambda k: "".join(ch for ch in str(k).lower() if ch.isalnum())
+
+        for k, v in (headers or {}).items():
+            if norm(k) in cls._JOB_ID_KEYS:
+                return str(v)
+
+        def scan(obj: Any) -> Optional[str]:
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    if norm(k) in cls._JOB_ID_KEYS and not isinstance(v, (dict, list)):
+                        return str(v)
+                    found = scan(v)
+                    if found:
+                        return found
+            elif isinstance(obj, list):
+                for item in obj:
+                    found = scan(item)
+                    if found:
+                        return found
+            elif isinstance(obj, str):
+                # MCP wraps the recipe payload as a JSON string — parse and scan it.
+                stripped = obj.strip()
+                if stripped[:1] in ("{", "["):
+                    try:
+                        return scan(json.loads(stripped))
+                    except (ValueError, TypeError):
+                        return None
+            return None
+
+        return scan(body)
 
 
 # -- tool-format converters (used by providers) -------------------------------

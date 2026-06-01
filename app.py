@@ -24,6 +24,7 @@ st.set_page_config(page_title="MCP Chat", page_icon="💬", layout="wide")
 init_app()
 
 logger = logging.getLogger("mcpchat.app")
+tool_logger = logging.getLogger("mcpchat.toolio")
 
 
 @st.cache_resource
@@ -211,6 +212,10 @@ if prompt:
     inject_date = (db.get_secret("INJECT_CURRENT_DATE", "true") or "true").lower() == "true"
     sys_prompt = effective_system_prompt(base_prompt, inject_date)
 
+    # When on, the FULL tool call + response (args, headers, body, detected job ID)
+    # is written to the app log FILE — not the DB (which stays a concise preview).
+    debug_io = (db.get_secret("DEBUG_TOOL_IO", "false") or "false").lower() == "true"
+
     model = st.session_state.model
 
     def server_of(tool_name: str):
@@ -229,6 +234,15 @@ if prompt:
             detail_json=json.dumps({"arguments": arguments,
                                     "result_preview": str(result)[:300]}),
         )
+        if debug_io:
+            tool_logger.info(
+                "TOOL I/O conv=%s tool=%s duration_ms=%s job_id=%s\n"
+                "  ARGS: %s\n  RESP HEADERS: %s\n  RESP BODY: %s",
+                conv_id, name, dur, client.last_job_id,
+                json.dumps(arguments, default=str),
+                json.dumps(client.last_response_headers, default=str),
+                json.dumps(client.last_response_body, default=str),
+            )
         return result
 
     def on_event(kind: str, payload: dict) -> None:

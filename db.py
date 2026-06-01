@@ -18,15 +18,18 @@ they live only in the DB, written by the OAuth flow (oauth_store.py).
 import os
 import json
 import sqlite3
+import threading
 from datetime import datetime
 from typing import Any, Optional
 
 # Database file lives next to this module (repo root)
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_chat.db")
 
-# Single shared connection. Streamlit reruns the script in one process/thread per
-# session, but cached resources can be touched across threads, so allow it.
-_conn: Optional[sqlite3.Connection] = None
+# One connection PER THREAD. Streamlit runs each rerun/session on its own
+# ScriptRunner thread; sharing a single sqlite connection across them can block
+# (the cause of "clear all logs hangs"). A thread-local connection avoids that;
+# WAL + a busy timeout keep concurrent readers/writers from deadlocking.
+_local = threading.local()
 
 
 def _now() -> str:
@@ -35,13 +38,16 @@ def _now() -> str:
 
 
 def get_conn() -> sqlite3.Connection:
-    """Return the shared connection, initializing schema on first use."""
-    global _conn
-    if _conn is None:
-        _conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-        _conn.row_factory = sqlite3.Row
-        _init_schema(_conn)
-    return _conn
+    """Return this thread's connection, initializing schema on first use."""
+    conn = getattr(_local, "conn", None)
+    if conn is None:
+        conn = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        _init_schema(conn)
+        _local.conn = conn
+    return conn
 
 
 def _init_schema(conn: sqlite3.Connection) -> None:
@@ -419,6 +425,19 @@ def clear_all_logs() -> int:
     cur = conn.execute("DELETE FROM chat_logs")
     conn.commit()
     return cur.rowcount
+
+
+def delete_all_conversations() -> int:
+    """Delete every conversation, its messages, and its logs. Returns the number
+    of conversations removed. Config (servers/keys/prompts) is untouched."""
+    conn = get_conn()
+    cur = conn.execute("SELECT COUNT(*) FROM conversations")
+    n = cur.fetchone()[0]
+    conn.execute("DELETE FROM messages")
+    conn.execute("DELETE FROM chat_logs")
+    conn.execute("DELETE FROM conversations")
+    conn.commit()
+    return n
 
 
 def conversation_usage(conversation_id: int) -> dict[str, Any]:
