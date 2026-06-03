@@ -1,1036 +1,293 @@
 # Simple MCP Chat
 
-A beginner-friendly Python chatbot that connects to Workato's Enterprise MCP servers. This is the simplest possible example of using MCP (Model Context Protocol) with AI models.
+A Python **web app** for chatting with AI models that can call tools from
+[Workato Enterprise MCP](https://www.workato.com/) servers (or any MCP server).
+Built with [Streamlit](https://streamlit.io/), it gives you a graphical chat
+interface, point-and-click MCP server management, saved system prompts, secure-ish
+credential storage, and built-in **token/latency benchmarking** so you can compare
+models and MCP servers.
 
-**Multiple AI Options Available:**
-- **OpenAI** (GPT-4, GPT-4o, GPT-3.5) - Cloud-based, powerful, easy to use
-- **Claude** (Anthropic) - Advanced reasoning, long context, thoughtful responses
-- **Ollama** - Run open-source LLMs locally (llama3.2, mistral, qwen2.5, etc.)
-- **LM Studio** - Run local LLMs for privacy and cost savings
+> Originally a set of command-line scripts, this project is now a single web app.
+> The provider tool-calling logic lives in `providers/` + `mcp_core.py`.
 
-## What Does This Do?
+**Supported AI providers** (pick per chat from the sidebar):
+- **OpenAI** (GPT-4o, GPT-4o-mini, …) — cloud
+- **Claude** (Anthropic) — cloud
+- **Ollama** — local open-source models (llama3.2, mistral, qwen, …)
+- **LM Studio** — local models via its OpenAI-compatible server
 
-This chatbot can:
+---
 
-1. **Connect** to multiple Workato MCP servers simultaneously
-2. **Discover** what tools are available from each server (like CRM data, spreadsheets, project management, etc.)
-3. **Chat** with an AI that automatically uses those tools to answer your questions
+## Quick start
 
-For example, if you connect to a Salesforce MCP server, you could ask:
+```bash
+uv sync                       # install dependencies (incl. Streamlit)
+uv run streamlit run app.py   # open http://localhost:8501
+```
 
+Then:
+1. Open **⚙️ Settings** (left nav) and add at least one API key (e.g. OpenAI or Claude).
+2. Open **🔌 MCP Servers** and add/enable a server (and authenticate if it uses OAuth).
+3. Go back to the chat, pick a provider/model in the sidebar, and start chatting.
+
+If you previously used the command-line version, your existing `.env` and
+`mcp_servers.json` are **imported automatically** into the database on first
+launch — your setup carries over with no manual steps. (OAuth tokens aren't
+imported; click **🔐 Re-authenticate** on the MCP Servers page once.)
+
+---
+
+## What it does
+
+1. **Connects** to one or more MCP servers simultaneously.
+2. **Discovers** the tools each server exposes (CRM data, spreadsheets, tickets, …).
+3. **Chats** with an AI that automatically calls the right tools to answer you.
+
+For example, with a Salesforce MCP server connected:
 - "Show me my open opportunities over $50k"
 - "What deals closed last week?"
-- "Find contacts at Acme Corp"
 
-Or if you have multiple servers configured (e.g., Salesforce + Google Sheets), you could ask:
-
+With multiple servers (e.g. Salesforce + Google Sheets):
 - "Pull my pipeline data and add it to my forecast spreadsheet"
 
-The AI will automatically call the right tools from the right servers and give you a natural language response.
+The AI picks the right tools from the right servers and replies in natural language.
+Tool names are automatically prefixed with the server name (e.g.
+`salesforce__Query_Records`) to avoid conflicts.
 
-## Key Concepts Explained
+---
+
+## Key concepts
 
 ### What is MCP?
-
-**MCP (Model Context Protocol)** is a standard way for AI models to use external tools and data sources. Think of it like a universal adapter that lets any AI talk to any service.
+**MCP (Model Context Protocol)** is a standard way for AI models to use external
+tools and data sources — a universal adapter that lets any AI talk to any service.
 
 ### What is Workato Enterprise MCP?
+Workato provides hosted MCP servers that connect to enterprise services (CRMs,
+databases, productivity tools) with OAuth 2.0 security, audit logging, and rate
+limiting. This app works with those, and with any MCP server speaking JSON-RPC.
 
-Workato provides hosted MCP servers that connect to various enterprise services (like CRMs, databases, productivity tools). You get:
+### What is tool (function) calling?
+When you ask a question, the model decides whether it needs external data. If so it
+names a tool to call; the app calls it on the MCP server, returns the result to the
+model, and the model produces a human-readable answer — looping for multi-step
+queries.
 
-- **Security**: OAuth 2.0 and encrypted credentials
-- **Compliance**: Audit logging for enterprise regulations
-- **Reliability**: Rate limiting and automatic retries
+---
 
-### What is Function Calling?
+## Using the app
 
-When you ask the AI a question, it decides if it needs external data. If so, it:
+The app has a Chat page plus four pages in the left nav.
 
-1. Tells us which tool to call
-2. We call the tool on the MCP server
-3. We send the result back to the AI
-4. The AI gives you a human-readable answer
+### 💬 Chat
+- Pick **Provider** and **Model** in the sidebar, and optionally a saved **System
+  prompt**.
+- Each conversation is **locked to the provider it started with** (switching mid-chat
+  would mix incompatible message formats). To use a different model, click **➕ New
+  chat**.
+- Conversations are saved automatically; reopen them from the sidebar.
+- Expand **📊 Logs & usage (this chat)** to see token totals, LLM time, and a table
+  of every call.
 
-## Project Structure
+### 🔌 MCP Servers
+Add, edit, enable/disable, and delete MCP servers. Per server you choose an auth type:
+- **none** — no auth header
+- **token** — a static `Authorization: Bearer <token>`
+- **oauth** — browser-based OAuth 2.0 (see below); use the **🔐 Re-authenticate**
+  button to (re)run the flow
+
+### 📝 System Prompts
+Create, edit, and delete reusable system prompts. The selected prompt is sent as the
+system message for the chat.
+
+### ⚙️ Settings
+Store API keys and provider defaults (model names, Ollama/LM Studio base URLs), and
+toggle date injection. Includes a **Legacy / unused secrets** cleanup and the ability
+to clear individual secrets.
+
+### 📊 Logs
+Benchmark and inspect — see [Logging & benchmarking](#logging--benchmarking).
+
+---
+
+## Providers
+
+Choose the provider/model in the sidebar; defaults are configured in **Settings**.
+
+### OpenAI / Claude (cloud)
+Add `OPENAI_API_KEY` and/or `CLAUDE_API_KEY` in Settings. Recommended models:
+- OpenAI: `gpt-4o-mini` (fast/cheap), `gpt-4o`
+- Claude: `claude-sonnet-4-5-20250929` (recommended), `claude-opus-4-1-20250805`,
+  `claude-3-5-haiku-20241022`
+
+### Ollama (local)
+1. Install Ollama from [ollama.ai](https://ollama.ai) and ensure it's running
+   (`curl http://localhost:11434/api/tags`).
+2. Pull a model that supports **function calling**: `ollama pull llama3.2`
+   (others: `mistral`, `qwen2.5`, `llama3.1`).
+3. In Settings set `OLLAMA_BASE_URL` (default `http://localhost:11434`) and
+   `OLLAMA_MODEL`.
+
+> Not all Ollama models support tool calling. Use one that does (see
+> [ollama.ai/library](https://ollama.ai/library)). Unlike the old CLI, the web app
+> does not auto-pull models — pull them first.
+
+### LM Studio (local)
+1. Install [LM Studio](https://lmstudio.ai), load a function-calling-capable model,
+   and start its local server.
+2. In Settings set `LMSTUDIO_BASE_URL` (default `http://localhost:1234/v1`).
+
+| Provider  | Cost            | Privacy | Notes                                   |
+|-----------|-----------------|---------|-----------------------------------------|
+| OpenAI    | Per token       | Cloud   | Fast, reliable                          |
+| Claude    | Per token       | Cloud   | Strong reasoning, long context          |
+| Ollama    | Free            | Local   | Open-source models, needs a capable GPU |
+| LM Studio | Free            | Local   | OpenAI-compatible local server          |
+
+---
+
+## MCP server authentication
+
+Configure servers on the **🔌 MCP Servers** page.
+
+**Token-based** — paste the bearer token into the server's form; it's sent as
+`Authorization: Bearer <token>`.
+
+**OAuth 2.0** — set the auth type to `oauth` and click **🔐 Re-authenticate**. The app:
+1. Auto-discovers OAuth endpoints via `.well-known/oauth-authorization-server`
+2. Auto-registers an OAuth client via dynamic client registration (RFC 7591)
+3. Opens your browser for authorization, with a local callback on port 8080
+4. Exchanges the code for tokens using **PKCE** (RFC 7636)
+5. Stores tokens in the database and refreshes them automatically
+
+**Security features:** PKCE, dynamic client registration, automatic endpoint
+discovery, and Bearer-token auth. Optional OAuth overrides (`client_id`,
+`client_secret`, `scopes`, `redirect_port`, `auth_url`, `token_url`) can be supplied
+as JSON in the server's OAuth config field if a server needs them.
+
+---
+
+## Logging & benchmarking
+
+Every LLM call and MCP tool call is logged to SQLite (`chat_logs` table) — no log
+files to manage. For each call the app records: provider, model, call type
+(`initial_request` / `tool_followup`), token usage (prompt/completion/total), latency
+in ms, the MCP server + tool used (with arguments) and the **size of data returned**,
+plus a response preview.
+
+**Where to see it:**
+- **Per chat:** the *📊 Logs & usage* expander on the Chat page (token totals, LLM
+  time, tool calls, full table).
+- **📊 Logs page:**
+  - **Per-conversation** detail table.
+  - **Models** — tokens and average latency by provider/model (tune your model choice).
+  - **MCP servers & tools** — call counts, average/max round-trip time, and average
+    returned-data size (tune which servers/tools to keep).
+  - Buttons to **clear one chat's logs** or **all logs**.
+
+This makes cost/performance tradeoffs visible — e.g. spotting when a model issues a
+broad MCP query that returns a huge payload, inflating the next call's prompt tokens
+and latency.
+
+### App log (file) vs conversation logs (DB)
+Two distinct layers of observability:
+- **Conversation logs** (above) live in the database — per-turn tokens, tools, and
+  timing for *what happened in a chat*.
+- **App log** is a rotating file, `logs/app.log`, capturing *whether the app itself
+  is healthy* — errors, tracebacks, and MCP/OAuth failures. View or clear its tail
+  from the **🐞 App log** section at the bottom of the Logs page; set the verbosity
+  via **App log level** in Settings (restart to apply).
+
+**Full tool-I/O debug (opt-in):** enable **"Debug: log full tool call & response to
+the app log file"** in Settings to write each MCP tool call's complete arguments,
+response headers, body, and any detected Workato job ID to `logs/app.log`. It's off
+by default (the payloads can be large); the database always keeps only a concise
+preview. A "job ID" is auto-detected from response headers/body when present — note
+that read-only Workato tools may not return one.
+
+### Current date/time injection
+With **"Inject current date/time"** enabled in Settings (default on), the current
+date/time is appended to the system prompt so the model can resolve relative dates
+("last 3 days", "this week"). Disable it for tests with historical data.
+
+---
+
+## Data & storage
+
+Everything lives in a single SQLite database, **`mcp_chat.db`** (git-ignored):
+servers, OAuth tokens, API keys/settings, saved system prompts, conversations,
+messages, and logs.
+
+> **Security note:** secrets are stored in `mcp_chat.db` as **plaintext** — the same
+> exposure level as a `.env` file, just centralized. Keep the database out of version
+> control (it's already in `.gitignore`).
+
+On first launch the app imports any existing `.env` and `mcp_servers.json`, then
+is fully DB-driven.
+
+---
+
+## Project structure
 
 ```
 simple-mcp-chat/
-├── chat-openai.py             # OpenAI implementation (heavily commented!)
-├── chat-claude.py             # Claude (Anthropic) implementation
-├── chat-ollama.py             # Ollama version for local open-source LLMs
-├── chat-lmstudio.py           # LM Studio version for local LLMs
-├── oauth_handler.py           # OAuth 2.0 authentication handler with PKCE
-├── troubleshoot_openai.py     # OpenAI connection troubleshooter
-├── mcp_servers.json           # Your MCP server configs (don't commit this!)
+├── app.py                     # Streamlit entry point + Chat page
+├── pages/                     # MCP Servers, System Prompts, Settings, Logs
+├── providers/                 # Unified chat backend (OpenAI-compatible + Claude)
+├── mcp_core.py                # Shared MCP client (discover + call tools)
+├── db.py                      # SQLite store (servers, tokens, keys, prompts, chats, logs)
+├── oauth_store.py             # OAuth 2.0 / PKCE flow with DB-backed token storage
+├── ui_common.py               # Shared Streamlit helpers
+├── mcp_chat.db                # SQLite database (auto-generated, don't commit!)
+├── mcp_servers.json           # Legacy seed config (optional, imported once)
 ├── mcp_servers.example.json   # Example server configuration
-├── .mcp_tokens.json           # OAuth tokens storage (auto-generated, don't commit!)
-├── pyproject.toml             # Python dependencies
-├── uv.lock                    # Locked dependency versions
-├── .env                       # Your API keys (don't commit this!)
-├── env.example                # Example environment configuration
-├── .gitignore                 # Git ignore rules
+├── .env / env.example         # Legacy seed config / template
+├── pyproject.toml / uv.lock   # Dependencies
 └── README.md                  # You're reading it
 ```
 
+---
+
 ## Prerequisites
-
-Before you start, you'll need:
-
-1. **Python 3.10+** installed on your computer
-2. **uv** package manager ([install instructions](https://github.com/astral-sh/uv))
-3. **AI provider** of your choice:
-   - **OpenAI API key** from [platform.openai.com](https://platform.openai.com) (for chat-openai.py)
-   - **Claude API key** from [console.anthropic.com](https://console.anthropic.com/) (for chat-claude.py)
-   - **Ollama** installed from [ollama.ai](https://ollama.ai) (for chat-ollama.py)
-   - **LM Studio** installed from [lmstudio.ai](https://lmstudio.ai) (for chat-lmstudio.py)
-4. **Workato MCP URL(s)** from your Workato workspace
-
-## Setup Instructions
-
-### Step 1: Clone or Download
-
-```bash
-git clone YOUR_REPO_URL
-cd simple-mcp-chat
-```
-
-### Step 2: Create Your Configuration Files
-
-Copy the example files:
-
-```bash
-cp env.example .env
-cp mcp_servers.example.json mcp_servers.json
-```
-
-Edit `.env` with your API key(s):
-
-```env
-# OpenAI Configuration (for chat-openai.py)
-OPENAI_API_KEY=sk-proj-...your-key-here...
-MODEL=gpt-4o-mini
-
-# Claude Configuration (for chat-claude.py)
-CLAUDE_API_KEY=sk-ant-...your-key-here...
-CLAUDE_MODEL=claude-sonnet-4-5-20250929
-
-# Ollama Configuration (for chat-ollama.py)
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=llama3.2
-
-# LM Studio Configuration (for chat-lmstudio.py)
-LMSTUDIO_BASE_URL=http://localhost:1234/v1
-LMSTUDIO_MODEL=local-model
-```
-
-Edit `mcp_servers.json` to configure your MCP servers. You can use either token-based or OAuth authentication.
-
-**Token-based authentication (simple):**
-
-```json
-{
-  "servers": [
-    {
-      "name": "salesforce",
-      "url": "https://apim.workato.com/your-workspace/salesforce-mcp?token=YOUR_TOKEN",
-      "enabled": true,
-      "auth_type": "token"
-    },
-    {
-      "name": "jira",
-      "url": "https://apim.workato.com/your-workspace/jira-mcp?token=YOUR_TOKEN",
-      "enabled": true,
-      "auth_type": "token"
-    }
-  ]
-}
-```
-
-**OAuth 2.0 authentication (browser-based)** for servers that require OAuth:
-
-```json
-{
-  "servers": [
-    {
-      "name": "sheets",
-      "url": "https://2107.apim.mcp.workato.com/",
-      "enabled": true,
-      "auth_type": "oauth"
-    }
-  ]
-}
-```
-
-That's it! Just set `"auth_type": "oauth"` and everything else is automatic. When you run the chatbot, it will:
-
-1. **Auto-discover OAuth endpoints** via `.well-known/oauth-authorization-server`
-2. **Auto-register as an OAuth client** using dynamic client registration (RFC 7591)
-3. Check if you have a stored, valid OAuth token
-4. If not, **open your browser** for authentication
-5. Start a local server on port 8080 to receive the OAuth callback
-6. Exchange the authorization code for an access token using **PKCE** (Proof Key for Code Exchange, RFC 7636) for security
-7. Store the token securely in `.mcp_tokens.json` (excluded from Git)
-8. Use **Bearer token authentication** in the Authorization header (standard OAuth practice)
-9. Automatically refresh tokens when they expire
-
-**Security Features:**
-
-- **PKCE (RFC 7636)**: Protects against authorization code interception attacks
-- **Dynamic Client Registration (RFC 7591)**: No manual OAuth client setup required
-- **Automatic OAuth Discovery**: Discovers endpoints from `.well-known/oauth-authorization-server`
-- **Token Storage**: Securely stores tokens separately from client credentials
-- **Bearer Token Authentication**: Uses standard `Authorization: Bearer <token>` headers
-
-### Optional OAuth Configuration
-
-All OAuth parameters are optional and will be auto-discovered/auto-configured if not provided. You can override defaults if needed:
-
-```json
-{
-  "name": "sheets",
-  "url": "https://2107.apim.mcp.workato.com/",
-  "enabled": true,
-  "auth_type": "oauth",
-  "oauth": {
-    "client_id": "custom_client_id",
-    "client_secret": "custom_client_secret",
-    "scopes": ["mcp.read", "mcp.write"],
-    "redirect_port": 8080,
-    "auth_url": "https://id.workato.com/oauth/authorize",
-    "token_url": "https://id.workato.com/oauth/token"
-  }
-}
-```
-
-**Configuration options for each server:**
-
-| Option | Description |
-|--------|-------------|
-| `name` | A short identifier (used to prefix tool names) |
-| `url` | The full Workato MCP endpoint URL |
-| `enabled` | Set to `false` to temporarily disable a server |
-| `auth_type` | Either `"token"` (default) or `"oauth"` |
-
-**OAuth options (all optional):**
-
-| Option | Description |
-|--------|-------------|
-| `client_id` | OAuth client ID - will auto-register via RFC 7591 if not provided |
-| `client_secret` | OAuth client secret - will auto-register via RFC 7591 if not provided |
-| `scopes` | Array of OAuth scopes to request - uses server defaults if not provided |
-| `redirect_port` | Local port for OAuth callback - default is 8080 |
-| `auth_url` | Custom authorization endpoint - auto-discovered if not provided |
-| `token_url` | Custom token endpoint - auto-discovered if not provided |
-
-**OAuth Auto-Discovery & Auto-Registration Flow:**
-
-1. **Endpoint Discovery**: Fetches `.well-known/oauth-authorization-server` from the server URL to discover authorization endpoint, token endpoint, registration endpoint, and supported grant types/scopes.
-
-2. **Dynamic Client Registration**: If no `client_id` is provided, automatically registers as an OAuth client, generates a client name (`simple-mcp-chat-{server_name}`), sets redirect URI (`http://localhost:{redirect_port}/callback`), and stores client credentials in `.mcp_tokens.json`.
-
-3. **PKCE Flow**: Uses Proof Key for Code Exchange for security by generating a random code verifier, creating SHA256 code challenge, sending challenge with authorization request, and sending verifier with token request.
-
-4. **Token Management**: Stores access tokens and refresh tokens in `.mcp_tokens.json`, tracks token expiration times, automatically refreshes tokens when needed, and separates client credentials from access tokens for security.
-
-### Step 3: Install Dependencies
-
-```bash
-uv sync
-```
-
-This installs:
-
-- `openai` - For talking to GPT (used by chat-openai.py)
-- `anthropic` - For talking to Claude (used by chat-claude.py)
-- `python-dotenv` - For loading your .env file
-- `requests` - For making HTTP calls to the MCP server and OAuth authentication
-
-### Step 4: Run the Chat
-
-Choose your AI provider:
-
-#### Option A: OpenAI (Cloud)
-
-```bash
-uv run python chat-openai.py
-```
-
-**With System Prompt:**
-
-```bash
-# Using command line argument
-uv run python chat-openai.py --system-prompt "You are a helpful medical assistant."
-
-# Or use the short form
-uv run python chat-openai.py -s "You are a concise assistant that answers in bullet points."
-
-# View all options
-uv run python chat-openai.py --help
-```
-
-#### Option B: Claude (Cloud)
-
-```bash
-uv run python chat-claude.py
-```
-
-**With System Prompt:**
-
-```bash
-# Using command line argument
-uv run python chat-claude.py --system-prompt "You are a helpful medical assistant."
-
-# Or use the short form
-uv run python chat-claude.py -s "You are a concise assistant that answers in bullet points."
-
-# View all options
-uv run python chat-claude.py --help
-```
-
-You should see:
-
-```
-MCP Chat - Discovering tools...
-  - salesforce: 5 tools
-  - jira: 3 tools
-
-Connected to 2 server(s) with 8 total tools
-Type 'quit' or 'exit' to end
-----------------------------------------
-
-You:
-```
-
-If you have OAuth-enabled servers, the first run will include OAuth authentication:
-
-```
-MCP Chat - Discovering tools...
-  Discovered auth endpoint: https://id.workato.com/oauth/authorize
-  Discovered token endpoint: https://id.workato.com/oauth/token
-  Registering OAuth client for sheets...
-  [OK] Client registered successfully
-
-  Opening browser for OAuth authentication...
-  Waiting for authorization...
-
-  [SUCCESS] Authorization code received
-  [SUCCESS] Access token obtained
-  [SUCCESS] Token stored for future use
-
-  - salesforce: 5 tools
-  - sheets: 1 tools
-
-Connected to 2 server(s) with 6 total tools
-Type 'quit' or 'exit' to end
-----------------------------------------
-
-You:
-```
-
-Subsequent runs will use the stored token:
-
-```
-MCP Chat - Discovering tools...
-Using stored token for sheets
-  - salesforce: 5 tools
-  - sheets: 1 tools
-
-Connected to 2 server(s) with 6 total tools
-```
-
-**Claude-Specific Features:**
-
-Claude offers some unique advantages:
-- **Long Context**: Handles larger conversations and more tool results
-- **Advanced Reasoning**: Excellent at complex multi-step queries
-- **Thoughtful Responses**: More detailed explanations and analysis
-- **Latest Models**: Access to Claude Sonnet 4.5, Opus 4.5, and previous generation models
-
-**Claude Models:**
-- `claude-sonnet-4-5-20250929` - Latest Claude Sonnet 4.5, best balance of performance and cost (recommended)
-- `claude-opus-4-5-20251101` - Most powerful Claude model, best for complex tasks
-- `claude-3-5-sonnet-20241022` - Previous generation Sonnet, still very capable
-- `claude-3-opus-20240229` - Previous generation Opus
-- `claude-3-haiku-20240307` - Fastest and most economical
-
-#### Option C: Ollama (Local)
-
-For running with local open-source LLMs via Ollama:
-
-1. **Install Ollama** from [ollama.ai](https://ollama.ai)
-
-2. **Verify Ollama is running**:
-
-```bash
-# Check if Ollama is running
-curl http://localhost:11434/api/tags
-
-# Should return JSON with list of installed models
-```
-
-3. **Run the Ollama chat**:
-
-The chat script will automatically pull the model if it's not already installed, so you can skip the manual `ollama pull` step!
-
-```bash
-uv run python chat-ollama.py
-```
-
-**With System Prompt:**
-
-```bash
-# Using command line argument
-uv run python chat-ollama.py --system-prompt "You are a helpful medical assistant."
-
-# Or use the short form
-uv run python chat-ollama.py -s "You are a concise assistant that answers in bullet points."
-
-# View all options
-uv run python chat-ollama.py --help
-```
-
-You should see:
-
-```
-Ollama MCP Chat
-----------------------------------------
-Checking if model 'llama3.2' exists... ✓
-Loading model 'llama3.2' into memory... ✓
-Discovering tools...
-  - salesforce: 5 tools
-  - jira: 3 tools
-
-Connected to 2 server(s) with 8 total tools
-Using model: llama3.2
-Type 'quit' or 'exit' to end
-----------------------------------------
-
-You:
-```
-
-**If the model isn't installed yet, it will be automatically pulled:**
-
-```
-Ollama MCP Chat
-----------------------------------------
-Checking if model 'llama3.2' exists... not found
-Pulling model 'llama3.2' from Ollama registry...
-  pulling manifest
-  pulling [layer details with progress]
-  verifying sha256 digest
-  writing manifest
-  removing any unused layers
-Successfully pulled model 'llama3.2' ✓
-Loading model 'llama3.2' into memory... ✓
-Discovering tools...
-```
-
-**Ollama-Specific Features:**
-
-- **100% Local**: All processing happens on your machine, no cloud API calls
-- **Privacy-Focused**: Your data never leaves your computer
-- **No API Costs**: Free to use, no usage limits
-- **Open-Source Models**: Access to llama3, mistral, qwen, and many more
-- **Automatic Model Management**: Models are automatically pulled if not installed
-- **Customizable**: Fine-tune models for your specific use case
-
-**Ollama Configuration** (optional, in `.env`):
-
-```env
-# Change the Ollama server URL if needed (default: http://localhost:11434)
-OLLAMA_BASE_URL=http://localhost:11434
-
-# Change the model to use (must be pulled first)
-OLLAMA_MODEL=llama3.2
-
-# Other good options:
-# OLLAMA_MODEL=mistral
-# OLLAMA_MODEL=qwen2.5
-# OLLAMA_MODEL=llama3.1
-```
-
-**Recommended Models for MCP Tool Calling:**
-
-| Model | Size | Function Calling | Best For |
-|-------|------|------------------|----------|
-| llama3.2 | 3B | Yes | General use, fast responses |
-| mistral | 7B | Yes | Balanced performance |
-| qwen2.5 | 7B | Yes | Multilingual, coding |
-| llama3.1 | 8B | Yes | Advanced reasoning |
-
-**Note:** Not all Ollama models support function calling. For MCP tool integration, you must use a model that supports function calling (like those listed above). Check the model card on [ollama.ai/library](https://ollama.ai/library) for function calling support.
-
-**Manual Model Installation** (optional):
-
-If you prefer to manually install models before running the chat script:
-
-```bash
-# Recommended models with function calling support
-ollama pull llama3.2        # Meta's Llama 3.2 (recommended)
-ollama pull mistral         # Mistral AI's model
-ollama pull qwen2.5         # Alibaba's Qwen 2.5
-ollama pull llama3.1        # Meta's Llama 3.1
-
-# List installed models
-ollama list
-```
-
-#### Option D: LM Studio (Local)
-
-For running with a local LLM via LM Studio:
-
-1. **Install and start LM Studio** from [lmstudio.ai](https://lmstudio.ai)
-2. **Load a model** that supports function calling (look for models with "function calling" or "tool use" support)
-3. **Start the local server** in LM Studio (default: `http://localhost:1234`)
-4. **Run the LM Studio chat**:
-
-```bash
-uv run python chat-lmstudio.py
-```
-
-You should see:
-
-```
-LM Studio MCP Chat - Discovering tools...
-  - salesforce: 5 tools
-  - jira: 3 tools
-
-Connected to LM Studio at http://localhost:1234/v1
-Connected to 2 MCP server(s) with 8 total tools
-
-Note: Make sure you have a model loaded in LM Studio!
-For best results, use a model that supports function calling.
-Type 'quit' or 'exit' to end
-----------------------------------------
-
-You:
-```
-
-**LM Studio Configuration** (optional, in `.env`):
-
-```env
-# Change the LM Studio server URL if needed
-LMSTUDIO_BASE_URL=http://localhost:1234/v1
-
-# Model name (usually ignored by LM Studio)
-LMSTUDIO_MODEL=local-model
-
-# Optional: Set a default system prompt to guide LLM behavior
-SYSTEM_PROMPT=You are a helpful assistant.
-```
-
-**Using System Prompts:**
-
-You can customize the LLM's behavior by providing a system prompt either via environment variable or command line:
-
-```bash
-# Using environment variable (set in .env)
-uv run python chat-lmstudio.py
-
-# Using command line argument
-uv run python chat-lmstudio.py --system-prompt "You are a helpful medical assistant."
-
-# Or use the short form
-uv run python chat-lmstudio.py -s "You are a concise assistant that answers in bullet points."
-
-# View all options
-uv run python chat-lmstudio.py --help
-```
-
-System prompts are useful for:
-
-- Setting the tone and style of responses
-- Specializing the assistant for specific domains (medical, legal, technical, etc.)
-- Enforcing response formats (bullet points, brief answers, detailed explanations)
-- Adding custom instructions or constraints
-
-Tool names are automatically prefixed with the server name (e.g., `salesforce__Query_Records`) to avoid conflicts between servers.
-
-## Current Date/Time Injection
-
-The chatbot automatically injects the current date and time into each user message to ensure the LLM always knows the current date for time-based queries. This is especially important for applications like CGM data analysis where "last 3 days" or "this week" needs to be calculated from today's date.
-
-**Configuration:**
-
-```env
-# Automatically inject current date/time (recommended)
-INJECT_CURRENT_DATE=true
-```
-
-**How it works:**
-
-Each user message is automatically prepended with the current date and time:
-
-```
-[Current date and time: 2026-01-12 16:30:45 (formatted for API: 2026-01-12T16:30:45)]
-
-What were my glucose levels in the last 3 days?
-```
-
-This ensures the LLM:
-- Knows the exact current date (not relying on its knowledge cutoff date)
-- Can accurately calculate relative dates ("last 3 days", "this week", etc.)
-- Uses the correct date format for API calls (YYYY-MM-DDTHH:MM:SS)
-
-**When to disable:**
-
-Set `INJECT_CURRENT_DATE=false` if:
-- You're testing with historical conversations
-- The current date is not relevant to your use case
-- You want to manually specify dates in your prompts
-
-## Logging and Debugging
-
-Both the OpenAI and LM Studio versions include comprehensive logging to help you debug issues and understand what's happening behind the scenes.
-
-### Enabling Detailed Logging
-
-The chatbot supports flexible logging to both console and file. Add these to your `.env` file:
-
-```env
-# Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-LOG_LEVEL=DEBUG
-
-# Log to file (optional)
-LOG_FILE=logs/chat.log
-
-# Show logs in terminal (true/false)
-LOG_TO_CONSOLE=true
-```
-
-**Configuration Options:**
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `LOG_LEVEL` | Logging detail level | `DEBUG`, `INFO`, `WARNING` |
-| `LOG_FILE` | Path to log file (leave empty to disable) | `logs/chat.log` |
-| `LOG_TO_CONSOLE` | Show logs in terminal | `true` or `false` |
-
-**Common Configurations:**
-
-1. **Debug to file only (clean terminal):**
-   ```env
-   LOG_LEVEL=DEBUG
-   LOG_FILE=logs/chat.log
-   LOG_TO_CONSOLE=false
-   ```
-
-2. **Debug to both file and terminal:**
-   ```env
-   LOG_LEVEL=DEBUG
-   LOG_FILE=logs/chat.log
-   LOG_TO_CONSOLE=true
-   ```
-
-3. **Console only (no file):**
-   ```env
-   LOG_LEVEL=DEBUG
-   LOG_FILE=
-   LOG_TO_CONSOLE=true
-   ```
-
-**Logging Levels Explained:**
-
-- **DEBUG**: Shows all communication details including:
-  - Complete MCP JSON-RPC requests and responses
-  - Full OpenAI/Claude/LM Studio API requests and responses
-  - Tool discovery process
-  - Tool execution details
-  - Token usage statistics
-
-- **INFO**: Shows high-level operations:
-  - Tool calls and which tools are being invoked
-  - Server connection status
-  - OAuth authentication flow
-
-- **WARNING**: Shows only warnings and errors
-
-- **ERROR/CRITICAL**: Shows only errors
-
-### Example Debug Output
-
-When `LOG_LEVEL=DEBUG`, you'll see detailed logs like:
-
-```
-2026-01-12 10:30:45 - __main__ - DEBUG - ================================================================================
-2026-01-12 10:30:45 - __main__ - DEBUG - MCP REQUEST
-2026-01-12 10:30:45 - __main__ - DEBUG - URL: https://apim.workato.com/your-workspace/dexcom-mcp
-2026-01-12 10:30:45 - __main__ - DEBUG - Method: tools/call
-2026-01-12 10:30:45 - __main__ - DEBUG - Headers: {
-  "Authorization": "Bearer ***"
-}
-2026-01-12 10:30:45 - __main__ - DEBUG - Payload: {
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "tools/call",
-  "params": {
-    "name": "Get_Glucose_Values_v1",
-    "arguments": {
-      "start_date_time": "2026-01-01T00:00:00",
-      "end_date_time": "2026-01-07T23:59:59"
-    }
-  }
-}
-2026-01-12 10:30:46 - __main__ - DEBUG - MCP RESPONSE
-2026-01-12 10:30:46 - __main__ - DEBUG - Status Code: 200
-2026-01-12 10:30:46 - __main__ - DEBUG - Response: {
-  "jsonrpc": "2.0",
-  "id": 1,
-  "result": {
-    "content": [
-      {
-        "type": "text",
-        "text": "Found 1,234 glucose readings..."
-      }
-    ]
-  }
-}
-2026-01-12 10:30:46 - __main__ - DEBUG - ================================================================================
-2026-01-12 10:30:46 - __main__ - DEBUG - ================================================================================
-2026-01-12 10:30:46 - __main__ - DEBUG - OPENAI REQUEST
-2026-01-12 10:30:46 - __main__ - DEBUG - Model: gpt-4o-mini
-2026-01-12 10:30:46 - __main__ - DEBUG - Messages: [
-  {
-    "role": "user",
-    "content": "What was my average glucose last week?"
-  },
-  {
-    "role": "tool",
-    "tool_call_id": "call_abc123",
-    "content": "Found 1,234 glucose readings..."
-  }
-]
-2026-01-12 10:30:47 - __main__ - DEBUG - OPENAI RESPONSE
-2026-01-12 10:30:47 - __main__ - DEBUG - Finish Reason: stop
-2026-01-12 10:30:47 - __main__ - DEBUG - Content: Your average glucose last week was 125 mg/dL...
-2026-01-12 10:30:47 - __main__ - DEBUG - Usage: prompt_tokens=523, completion_tokens=87, total_tokens=610
-2026-01-12 10:30:47 - __main__ - DEBUG - ================================================================================
-```
-
-### What Gets Logged
-
-**MCP Server Communication:**
-- Request URL and method
-- Request payload (JSON-RPC 2.0 format)
-- Authorization headers (masked for security)
-- Response status codes
-- Complete response data
-
-**AI Model Communication (OpenAI/Claude/LM Studio):**
-- Model being used
-- Complete message history sent to the LLM
-- Available tools and their names
-- LLM's response content
-- Tool calls requested by the LLM
-- Token usage:
-  - OpenAI/LM Studio: prompt_tokens, completion_tokens, total_tokens
-  - Claude: input_tokens, output_tokens
-
-**Tool Operations:**
-- Tool discovery from each server
-- Tool names and descriptions
-- Tool execution with arguments
-- Tool results (truncated if very long)
-
-### Log Files
-
-When `LOG_FILE` is set, logs are saved to the specified file:
-
-- The `logs/` directory is automatically created if it doesn't exist
-- Logs are appended to the file (not overwritten)
-- The `logs/` directory is excluded from Git (already in `.gitignore`)
-- You can use any path: `logs/chat.log`, `logs/debug-2026-01-12.log`, etc.
-
-**Viewing Log Files:**
-
-```bash
-# View entire log file
-cat logs/chat.log
-
-# Follow log in real-time (like tail -f)
-tail -f logs/chat.log
-
-# View last 50 lines
-tail -n 50 logs/chat.log
-
-# Search logs for errors
-grep "ERROR" logs/chat.log
-```
-
-### Token Usage Tracking
-
-The chatbot can maintain a separate log file specifically for tracking token usage across all API calls. This is invaluable for:
-- Monitoring API costs
-- Optimizing prompts and system messages
-- Identifying expensive queries
-- Tracking usage over time
-
-**Configuration:**
-
-```env
-# Enable token usage logging
-TOKEN_LOG_FILE=logs/tokens.log
-```
-
-**Token Log Format:**
-
-Each API call is logged with the following information:
-
-```
-2026-01-12 16:45:30 - MODEL=gpt-4o-mini | PROMPT=523 | COMPLETION=87 | TOTAL=610 | TYPE=initial_request | USER_PROMPT=What were my glucose levels in the last 3 days? | SERVERS=dexcom | TOOLS=dexcom__Get_Data_Range_VUA_, dexcom__Get_Glucose_Values_VUA_ | RESPONSE=[Tool calls only]
-2026-01-12 16:45:35 - MODEL=gpt-4o-mini | PROMPT=1250 | COMPLETION=45 | TOTAL=1295 | TYPE=tool_followup | USER_PROMPT=What were my glucose levels in the last 3 days? | SERVERS=none | TOOLS=none | RESPONSE=Based on the data from the last 3 days, your average glucose was 145 mg/dL with 68% time in range (70-180 mg/dL). You had 12 low readings below 70 mg/dL and 45 high readings...
-```
-
-**Log Fields:**
-- **MODEL**: The model being used (e.g., `gpt-4o-mini`, `claude-3-5-sonnet-20241022`, `local-model`)
-- **PROMPT** or **INPUT**: Number of prompt/input tokens (depending on provider)
-- **COMPLETION** or **OUTPUT**: Number of completion/output tokens (depending on provider)
-- **TOTAL**: Total tokens used
-- **TYPE**: Request type (`initial_request` or `tool_followup`)
-- **USER_PROMPT**: The user's question/prompt (truncated to 100 chars)
-- **SERVERS**: Comma-separated list of MCP servers used (e.g., `dexcom`, `salesforce`), or "none"
-- **TOOLS**: Comma-separated list of tools called, or "none"
-- **RESPONSE**: The assistant's response (truncated to 200 chars)
-
-**Note:** Token field names vary by provider:
-- OpenAI/LM Studio: `PROMPT`, `COMPLETION`, `TOTAL`
-- Claude: `INPUT`, `OUTPUT`, `TOTAL`
-
-**Analyzing Token Usage:**
-
-```bash
-# View all token usage
-cat logs/tokens.log
-
-# Calculate total tokens used
-awk -F'TOTAL=' '{sum+=$2} END {print "Total tokens:", sum}' logs/tokens.log | awk '{print $1, $2, $3}'
-
-# Find most expensive queries
-sort -t'=' -k5 -nr logs/tokens.log | head -10
-
-# Count API calls per day
-grep "2026-01-12" logs/tokens.log | wc -l
-```
-
-**Cost Calculation Example:**
-
-For pricing comparison (example rates):
-- **OpenAI:**
-  - GPT-4o-mini: ~$0.15/1M input tokens, ~$0.60/1M output tokens
-  - GPT-4o: ~$2.50/1M input tokens, ~$10.00/1M output tokens
-- **Claude:**
-  - Claude 3.5 Sonnet: ~$3.00/1M input tokens, ~$15.00/1M output tokens
-  - Claude 3 Opus: ~$15.00/1M input tokens, ~$75.00/1M output tokens
-  - Claude 3 Haiku: ~$0.25/1M input tokens, ~$1.25/1M output tokens
-- **LM Studio:** Free (runs locally)
-
-Use the token logs to estimate costs and optimize usage.
-
-### Security Note
-
-Authorization tokens in the logs are automatically masked to show `Bearer ***` instead of the actual token value. Your API keys remain secure even with DEBUG logging enabled.
-
-## How to Use
-
-Just type natural language questions! The AI will figure out which tools to use.
-
-### Example Conversation
-
-```
-You: What open deals do I have over $100k?
-
-[Calling salesforce__Query_Opportunities...]
-
-A: You have 3 open opportunities over $100k:
-   1. Acme Corp - Enterprise License ($150,000) - Closing Jan 30
-   2. GlobalTech - Platform Deal ($125,000) - Closing Feb 15
-   3. Initech - Annual Contract ($110,000) - Closing Feb 28
-
-You: Create a Jira ticket to follow up on the Acme deal
-
-[Calling jira__Create_Issue...]
-
-A: Created SALES-142: "Follow up on Acme Corp Enterprise License opportunity"
-```
-
-## Example Prompts
-
-Here are some prompts you can try with different MCP tools:
-
-### CRM (Salesforce, HubSpot)
-
-- "Show me all opportunities closing this month"
-- "Find contacts at companies in the healthcare industry"
-- "What's the total value of my pipeline?"
-- "List accounts I haven't contacted in 30 days"
-- "Create a new lead for John Smith at Acme Corp"
-
-### Project Management (Jira, Asana)
-
-- "What tickets are assigned to me?"
-- "Show me all high-priority bugs"
-- "Create a task to review the Q1 roadmap"
-- "What's the status of PROJECT-123?"
-- "List all issues updated this week"
-
-### Productivity (Google Sheets, Calendar)
-
-- "Add a row to my sales tracker spreadsheet"
-- "What meetings do I have tomorrow?"
-- "Find all spreadsheets with 'budget' in the name"
-- "Update cell B5 to show the new forecast"
-
-### Communication (Slack, Email)
-
-- "Send a message to #sales-team about the new pricing"
-- "Search for emails from our legal team"
-- "What unread messages do I have?"
-
-### Multi-Tool Queries
-
-The AI can automatically chain multiple tool calls:
-
-- "Find my biggest deal and create a Jira ticket to prepare the proposal"
-- "Get my calendar for tomorrow and send a Slack summary to my team"
-- "Pull Q4 sales data and update the forecast spreadsheet"
+- **Python 3.10+**
+- **uv** package manager ([install](https://github.com/astral-sh/uv))
+- An **AI provider**: an OpenAI or Claude API key, or a local Ollama / LM Studio
+- One or more **MCP server URLs** (e.g. from your Workato workspace)
+
+---
 
 ## Troubleshooting
 
-### OpenAI Connection Troubleshooter
+**"No tools discovered" / a server fails**
+Check the server URL on the MCP Servers page. For token auth, verify the token; for
+OAuth, click **🔐 Re-authenticate**. Other servers keep working if one fails — the
+chat caption surfaces per-server errors.
 
-If you're having issues connecting to OpenAI, run the built-in troubleshooter:
+**401 Unauthorized**
+- Token auth: the token likely expired — update it on the MCP Servers page.
+- OAuth: click **🔐 Re-authenticate** to refresh the token.
 
-```bash
-uv run python troubleshoot_openai.py
-```
+**OAuth: "authentication failed"**
+- Port 8080 in use → set a different `redirect_port` in the server's OAuth config.
+- Browser didn't open → copy the URL printed in the terminal.
+- Server doesn't support dynamic registration → provide `client_id`/`client_secret`
+  in the OAuth config.
 
-This script diagnoses common issues including:
+**"API key is not set"**
+Add the provider's key in **⚙️ Settings**.
 
-- Network connectivity to OpenAI servers
-- DNS resolution
-- Firewall/proxy blocking
-- SSL/TLS issues
-- API key validation
-- Model access
+**Ollama: can't connect / model not found**
+Ensure Ollama is running (`curl http://localhost:11434/api/tags`) and the model is
+pulled (`ollama pull llama3.2`). Use a model that supports function calling.
 
-For more detailed output, use the verbose flag:
+**LM Studio: can't connect / tools not called**
+Ensure LM Studio's local server is started and `LMSTUDIO_BASE_URL` matches. Load a
+model that supports tool use (e.g. Mistral Instruct, Qwen, function-calling Llama).
 
-```bash
-uv run python troubleshoot_openai.py --verbose
-```
+**Can't switch model mid-conversation**
+That's intentional — conversations are locked to their provider. Click **➕ New chat**.
 
-### "No MCP servers configured"
-
-Make sure you have a `mcp_servers.json` file with at least one server configured.
-
-### "No tools discovered"
-
-Check that your server URLs in `mcp_servers.json` are correct and include the authentication token (for token-based auth) or that OAuth authentication succeeded (for OAuth auth).
-
-### "Error calling tool" or "401 Unauthorized"
-
-- For **token-based auth**: Your token might have expired. Check your Workato workspace for a new token.
-- For **OAuth auth**: Your stored token might have expired. Delete `.mcp_tokens.json` and restart the application to re-authenticate.
-
-### "Invalid API key"
-
-Make sure your `OPENAI_API_KEY` is correct in the `.env` file.
-
-### One server fails but others work
-
-The chatbot will continue with the servers that succeed. Check the error message for the failing server and verify its URL/token.
-
-### OAuth: "OAuth authentication failed"
-
-Common causes:
-
-- **Port 8080 already in use**: Change `redirect_port` in your OAuth config
-- **Browser didn't open**: Manually copy the URL from the terminal into your browser
-- **OAuth server doesn't support dynamic registration**: Manually create an OAuth client in Workato and provide `client_id` and `client_secret` in the config
-
-### OAuth: "Code challenge is required"
-
-This should not happen - PKCE is automatically enabled. If you see this, please report it as a bug.
-
-### OAuth: Token stored but still getting 401 errors
-
-The OAuth implementation uses Bearer token authentication. If you're still getting 401 errors:
-
-1. Delete `.mcp_tokens.json`
-2. Restart the application
-3. Re-authenticate in the browser
-4. The new token will use Bearer authentication
-
-### LM Studio: "Could not connect to LM Studio"
-
-Make sure LM Studio is running and the local server is started. Check that the URL matches (default: `http://localhost:1234/v1`).
-
-### LM Studio: Tools not being called
-
-Not all models support function calling. Try a model that explicitly supports tool use, such as:
-
-- Mistral Instruct models
-- Llama models with function calling support
-- Qwen models with tool support
-
-### Ollama: "Could not connect to Ollama"
-
-Make sure Ollama is installed and running. Check the service:
-
-```bash
-# Check if Ollama is running
-curl http://localhost:11434/api/tags
-
-# Or check the version
-ollama --version
-```
-
-If Ollama isn't running, start it:
-- **macOS/Linux**: Ollama starts automatically after installation, or run `ollama serve`
-- **Windows**: Launch Ollama from the Start menu or system tray
-
-### Ollama: "Model not found" or pull fails
-
-The chat script automatically pulls models that aren't installed. If the automatic pull fails:
-
-```bash
-# Manually pull the model specified in your .env
-ollama pull llama3.2
-
-# Verify it's installed
-ollama list
-```
-
-Common causes for pull failures:
-- No internet connection
-- Insufficient disk space
-- Ollama service not running properly
-- Model name typo in `.env` file
-
-### Ollama: Tools not being called or incorrect responses
-
-Not all Ollama models support function calling. Use models with proven tool support:
-
-- **llama3.2** (recommended for general use)
-- **mistral** (good balance of performance)
-- **qwen2.5** (multilingual, coding)
-- **llama3.1** (advanced reasoning)
-
-Smaller models like `llama3.2:1b` are fast but may be less accurate with complex tool calls. For best results, use the default 3B or larger models.
-
-### Ollama: Slow responses
-
-Try a smaller/faster model:
-
-```bash
-# Very fast, lightweight (good for testing)
-ollama pull llama3.2:1b
-
-# Or use GGUF quantized models for better performance
-ollama pull llama3.2:3b-q4_0
-```
-
-You can also adjust the `OLLAMA_MODEL` setting in your `.env` file.
+---
 
 ## License
 
