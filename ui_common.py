@@ -23,6 +23,31 @@ def init_app() -> bool:
     return True
 
 
+# Sidebar pages: (script path, label, icon). The entry script (app.py) is shown as
+# "Home". We hide Streamlit's auto nav (which would label the entry "app") and
+# render these custom links instead.
+_NAV_PAGES = [
+    ("app.py", "Home", "💬"),
+    ("pages/1_MCP_Servers.py", "MCP Servers", "🔌"),
+    ("pages/2_System_Prompts.py", "System Prompts", "📝"),
+    ("pages/3_Settings.py", "Settings", "⚙️"),
+    ("pages/4_Logs.py", "Logs", "📊"),
+]
+
+
+def render_nav() -> None:
+    """Render the sidebar navigation with custom labels (call near the top of each
+    page). Replaces the default auto-generated nav so the entry page reads 'Home'."""
+    st.markdown(
+        "<style>[data-testid='stSidebarNav']{display:none;}</style>",
+        unsafe_allow_html=True,
+    )
+    with st.sidebar:
+        for path, label, icon in _NAV_PAGES:
+            st.page_link(path, label=label, icon=icon)
+        st.divider()
+
+
 def display_text(message: dict[str, Any]) -> Optional[tuple[str, str]]:
     """Reduce a stored (provider-native) message to (role, text) for display, or
     None if it's tool plumbing with nothing user-facing to show.

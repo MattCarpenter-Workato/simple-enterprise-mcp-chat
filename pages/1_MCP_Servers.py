@@ -5,11 +5,12 @@ import json
 import streamlit as st
 
 import db
-from ui_common import init_app
+from ui_common import init_app, render_nav
 from oauth_store import OAuthHandler
 
 st.set_page_config(page_title="MCP Servers", page_icon="🔌", layout="wide")
 init_app()
+render_nav()
 
 st.title("🔌 MCP Servers")
 st.caption("Configure the MCP servers the chat connects to. Stored in SQLite.")

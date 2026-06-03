@@ -7,10 +7,11 @@ stored and sent to the model as raw text (Markdown flows through unchanged).
 import streamlit as st
 
 import db
-from ui_common import init_app
+from ui_common import init_app, render_nav
 
 st.set_page_config(page_title="System Prompts", page_icon="📝", layout="wide")
 init_app()
+render_nav()
 
 st.title("📝 System Prompts")
 st.caption("Saved prompts can be selected in the chat sidebar to steer responses. "

@@ -3,10 +3,11 @@
 import streamlit as st
 
 import db
-from ui_common import init_app
+from ui_common import init_app, render_nav
 
 st.set_page_config(page_title="Settings", page_icon="⚙️", layout="wide")
 init_app()
+render_nav()
 
 st.title("⚙️ Settings")
 st.caption("Credentials and settings are stored in mcp_chat.db (plaintext, "
@@ -79,6 +80,8 @@ with st.form("settings"):
 
 # --- danger zone -------------------------------------------------------------
 st.divider()
+st.subheader("Maintenance")
+
 with st.expander("Clear a stored secret"):
     keys = [k for k, _ in SECRET_FIELDS]
     target = st.selectbox("Secret to clear", keys)
@@ -86,3 +89,15 @@ with st.expander("Clear a stored secret"):
         db.set_secret(target, None)
         st.success(f"Cleared {target}.")
         st.rerun()
+
+with st.popover("🔑 Clear all auth tokens (force re-sync)"):
+    st.caption("Deletes all stored OAuth tokens and client registrations, and "
+               "re-discovers tools. Every OAuth server will need to be "
+               "re-authenticated (🔐 Re-authenticate on the MCP Servers page).")
+    if st.checkbox("Yes, clear all auth tokens", key="confirm_clear_tokens"):
+        if st.button("Clear auth tokens", type="primary"):
+            removed = db.clear_all_oauth_tokens()
+            st.cache_resource.clear()  # bust the discovery cache so tools re-sync
+            st.success(f"Cleared {removed} token(s). Re-authenticate each OAuth "
+                       "server on the MCP Servers page.")
+            st.rerun()

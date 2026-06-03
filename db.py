@@ -232,6 +232,15 @@ def get_oauth_token(server_name: str) -> Optional[dict[str, Any]]:
     return data or None
 
 
+def clear_all_oauth_tokens() -> int:
+    """Delete all stored OAuth tokens + client credentials, forcing every OAuth
+    server to re-register and re-authenticate. Returns rows removed."""
+    conn = get_conn()
+    cur = conn.execute("DELETE FROM oauth_tokens")
+    conn.commit()
+    return cur.rowcount
+
+
 def set_oauth_token(server_name: str, data: dict[str, Any]) -> None:
     known = ("access_token", "refresh_token", "client_id", "client_secret", "expires_at")
     extra = {k: v for k, v in data.items() if k not in known}

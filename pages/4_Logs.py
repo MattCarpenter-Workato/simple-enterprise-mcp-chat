@@ -10,11 +10,12 @@ import os
 import streamlit as st
 
 import db
-from ui_common import init_app
+from ui_common import init_app, render_nav
 from logging_setup import APP_LOG_PATH, read_tail, clear_log
 
 st.set_page_config(page_title="Logs", page_icon="📊", layout="wide")
 init_app()
+render_nav()
 
 st.title("📊 Logs & Benchmarking")
 

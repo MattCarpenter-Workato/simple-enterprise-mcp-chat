@@ -18,10 +18,12 @@ import streamlit as st
 import db
 import providers
 from mcp_core import MCPClient
-from ui_common import init_app, render_history, effective_system_prompt
+from oauth_store import OAuthHandler
+from ui_common import init_app, render_nav, render_history, effective_system_prompt
 
 st.set_page_config(page_title="MCP Chat", page_icon="💬", layout="wide")
 init_app()
+render_nav()
 
 logger = logging.getLogger("mcpchat.app")
 tool_logger = logging.getLogger("mcpchat.toolio")
@@ -82,6 +84,21 @@ st.session_state.setdefault("system_prompt_id", None)
 # =============================================================================
 with st.sidebar:
     st.header("💬 MCP Chat")
+
+    # Reconnect = authenticate any OAuth server that lacks a valid token (opens a
+    # browser when needed), then re-discover tools for all enabled servers.
+    if st.button("🔄 Reconnect MCP servers", width='stretch', key="resync_sidebar"):
+        with st.spinner("Reconnecting… a browser may open to authenticate."):
+            for s in db.list_servers(enabled_only=True):
+                if s["auth_type"] == "oauth":
+                    handler = OAuthHandler(s["name"], s["url"], s.get("oauth"))
+                    if not handler.token_noninteractive():
+                        try:
+                            handler.authorize()  # interactive browser flow
+                        except Exception as e:  # noqa: BLE001
+                            st.warning(f"{s['name']}: authentication failed: {e}")
+        get_client_and_tools.clear()
+        st.rerun()
 
     # Provider + model. Once a conversation has started it is locked to the
     # provider/model it began with — switching mid-chat would send one provider's
@@ -148,11 +165,12 @@ n_servers = len(client.servers)
 st.caption(f"Provider: **{provider_name}** · Model: **{st.session_state.model}** · "
            f"{n_servers} server(s), {len(tools)} tool(s)")
 if disc_errors:
-    st.warning("Some servers had issues: " +
-               "; ".join(f"{k}: {v}" for k, v in disc_errors.items()))
-    if st.button("🔄 Reconnect / re-discover tools"):
-        get_client_and_tools.clear()
-        st.rerun()
+    st.warning(
+        "Some servers had issues: "
+        + "; ".join(f"{k}: {v}" for k, v in disc_errors.items())
+        + "  —  click **🔄 Reconnect MCP servers** (sidebar); it will prompt for "
+        "login if a token is missing or expired."
+    )
 
 # Per-chat logs & token/latency usage.
 if st.session_state.conversation_id is not None:
