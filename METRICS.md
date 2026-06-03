@@ -80,9 +80,9 @@ token cost it imposes downstream.
 
 | Metric | What it is | Status |
 |---|---|---|
-| `success` | 1 if the tool returned a usable result, 0 on error | ➕ |
-| `error` | Error text when `success=0` | ➕ |
-| `attempt` | Nth call of **this tool within the turn** (`>1` = a retry) | ➕ |
+| `success` | 1 if the tool returned a usable result, 0 on error | ✅ |
+| `error` | Error text when `success=0` | ✅ |
+| `attempt` | Nth call of **this tool within the turn** (`>1` = a retry) | ✅ |
 | `turn_id` | Groups all calls of one user turn (→ rounds per turn) | ➕ |
 
 **How it helps tune Workato:** retries and extra rounds are pure waste — every retry
@@ -143,3 +143,23 @@ These are calculated in the Logs/tuning views, not captured per row:
 
 **Goal:** the fewest tokens, lowest latency, and lowest $ per turn that still produce
 a 👍 result — verified by comparing `run_tag`s before and after each recipe change.
+
+---
+
+## 8. Benchmarking workspace (⚗️ Benchmark page)
+
+The Benchmark page operationalizes the playbook above. You enter **one prompt**, pick
+**several `(provider, model)` variants**, and run them all against your current MCP
+servers in a single click. Each variant runs in its own conversation tagged with a
+`benchmark_run_id`, so every metric in this doc is captured per variant and rolled up
+into a **side-by-side comparison**:
+
+- **total turn time** (end-to-end wall clock per variant) + **LLM time**,
+- **total / prompt / completion tokens**,
+- **tool calls**, **tool errors** (`success=0`), and **retries** (`attempt>1`),
+- the **final answer** of each variant (for the 👍 quality check).
+
+Use it to A/B a change: run a prompt, change the recipe (or switch model), re-run, and
+compare tokens/latency/reliability before vs after. Past runs are reloadable from the
+run selector. (Dollar cost and `run_tag` free-text comparison are not yet wired in — the
+`benchmark_run_id` provides the grouping for now.)

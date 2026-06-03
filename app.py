@@ -11,46 +11,21 @@ Server, prompt, and key management live on the pages in pages/.
 
 import json
 import logging
-import time
 
 import streamlit as st
 
+import chat_runner
 import db
 import providers
-from mcp_core import MCPClient
 from oauth_store import OAuthHandler
-from ui_common import init_app, render_nav, render_history, effective_system_prompt
+from ui_common import (init_app, render_nav, render_history, effective_system_prompt,
+                       get_client_and_tools, server_signature)
 
 st.set_page_config(page_title="MCP Chat", page_icon="💬", layout="wide")
 init_app()
 render_nav()
 
 logger = logging.getLogger("mcpchat.app")
-tool_logger = logging.getLogger("mcpchat.toolio")
-
-
-@st.cache_resource
-def get_client_and_tools(signature: str):
-    """Build an MCP client and discover tools. Cached across reruns; the
-    `signature` (derived from the enabled-server set) busts the cache when the
-    server configuration changes. Returns (client, tools, errors)."""
-    client = MCPClient()
-    tools = client.discover_tools()
-    return client, tools, dict(client.errors)
-
-
-def server_signature() -> str:
-    """Cache key for discovery. Includes a per-server token fingerprint so that
-    (re)authenticating or refreshing a token busts the cache and re-discovers —
-    otherwise a stale 'not authenticated' result would persist after re-auth."""
-    parts = []
-    for s in db.list_servers(enabled_only=True):
-        fp = ""
-        if s["auth_type"] == "oauth":
-            tok = (db.get_oauth_token(s["name"]) or {}).get("access_token") or ""
-            fp = tok[-12:]  # changes on re-auth/refresh, not the full secret
-        parts.append(f"{s['name']}:{s['url']}:{s['auth_type']}:{fp}")
-    return "|".join(parts)
 
 
 def load_conversation(conv_id: int) -> None:
@@ -137,6 +112,15 @@ with st.sidebar:
     sel = st.selectbox("System prompt", prompt_labels, index=cur_idx)
     st.session_state.system_prompt_id = prompt_ids[prompt_labels.index(sel)]
 
+    # MCP servers to expose to the model. Defaults to all enabled servers; pick a
+    # subset to limit which servers' tools the model can call this chat. Tools are
+    # prefixed `server__tool`, so we filter the discovered tools by these names.
+    enabled_servers = [s["name"] for s in db.list_servers(enabled_only=True)]
+    selected_servers = st.multiselect(
+        "MCP servers", enabled_servers, default=enabled_servers, key="chat_servers",
+        help="Only the selected servers' tools are offered to the model.",
+    )
+
     st.divider()
     if st.button("➕ New chat", width='stretch'):
         new_conversation()
@@ -161,7 +145,10 @@ with st.sidebar:
 # =============================================================================
 client, tools, disc_errors = get_client_and_tools(server_signature())
 
-n_servers = len(client.servers)
+# Limit the tools offered to the model to the servers picked in the sidebar.
+tools = [t for t in tools if chat_runner.server_of(t["name"]) in selected_servers]
+
+n_servers = len(selected_servers)
 st.caption(f"Provider: **{provider_name}** · Model: **{st.session_state.model}** · "
            f"{n_servers} server(s), {len(tools)} tool(s)")
 if disc_errors:
@@ -193,6 +180,8 @@ if st.session_state.conversation_id is not None:
                         "tokens": r["total_tokens"],
                         "ms": r["duration_ms"],
                         "data_chars": r["data_chars"],
+                        "ok": r["success"],
+                        "attempt": r["attempt"],
                         "server": r["server"],
                         "tools": r["tools"],
                         "preview": (r["response_preview"] or
@@ -246,63 +235,15 @@ if prompt:
 
     model = st.session_state.model
 
-    def server_of(tool_name: str):
-        return tool_name.split("__")[0] if "__" in tool_name else None
-
-    # Time each MCP round-trip and log it (server, latency, returned data size).
-    def logged_call_tool(name: str, arguments: dict) -> str:
-        t0 = time.perf_counter()
-        result = client.call_tool(name, arguments)
-        dur = int((time.perf_counter() - t0) * 1000)
-        db.add_log(
-            conv_id, event_type="tool_call", provider=provider_name, model=model,
-            duration_ms=dur, data_chars=len(result or ""),
-            server=server_of(name), servers=server_of(name), tools=name,
-            user_prompt=prompt,
-            detail_json=json.dumps({"arguments": arguments,
-                                    "result_preview": str(result)[:300]}),
-        )
-        if debug_io:
-            tool_logger.info(
-                "TOOL I/O conv=%s tool=%s duration_ms=%s job_id=%s\n"
-                "  ARGS: %s\n  RESP HEADERS: %s\n  RESP BODY: %s",
-                conv_id, name, dur, client.last_job_id,
-                json.dumps(arguments, default=str),
-                json.dumps(client.last_response_headers, default=str),
-                json.dumps(client.last_response_body, default=str),
-            )
-        return result
-
-    def on_event(kind: str, payload: dict) -> None:
-        if kind == "tool_call":
-            status.write(f"🔧 Calling `{payload['name']}`…")
-        elif kind == "tool_result":
-            preview = str(payload["result"])[:120]
-            status.write(f"✓ `{payload['name']}` → {preview}")
-        elif kind == "llm_call":
-            requested = payload.get("tools_requested") or []
-            servers = sorted({server_of(t) for t in requested if server_of(t)})
-            db.add_log(
-                conv_id, event_type="llm_call",
-                provider=payload.get("provider", provider_name),
-                model=payload.get("model", model),
-                call_type=payload.get("call_type"),
-                prompt_tokens=payload.get("prompt_tokens"),
-                completion_tokens=payload.get("completion_tokens"),
-                total_tokens=payload.get("total_tokens"),
-                duration_ms=payload.get("duration_ms"),
-                user_prompt=prompt, system_prompt=sys_prompt,
-                servers=",".join(servers), tools=",".join(requested),
-                response_preview=payload.get("response_preview"),
-            )
-
     pre_len = len(st.session_state.messages)
     with st.chat_message("assistant"):
         try:
             with st.status("Generating…", expanded=True) as status:
-                final_text = provider.chat_turn(
-                    st.session_state.messages, tools, sys_prompt,
-                    model, logged_call_tool, on_event,
+                final_text, _total_ms = chat_runner.run_turn(
+                    client=client, provider=provider, provider_name=provider_name,
+                    model=model, messages=st.session_state.messages, tools=tools,
+                    sys_prompt=sys_prompt, user_prompt=prompt, conv_id=conv_id,
+                    debug_io=debug_io, on_status=status.write,
                 )
                 status.update(label="Done", state="complete", expanded=False)
             st.markdown(final_text or "_(no response)_")

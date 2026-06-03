@@ -89,6 +89,9 @@ if all_rows:
                 "total_tokens": r["total_tokens"],
                 "duration_ms": r["duration_ms"],
                 "data_chars": r["data_chars"],
+                "success": r["success"],
+                "error": r["error"],
+                "attempt": r["attempt"],
                 "server": r["server"],
                 "servers": r["servers"],
                 "tools": r["tools"],
@@ -141,6 +144,8 @@ else:
                     "total_tok": r["total_tokens"],
                     "ms": r["duration_ms"],
                     "data_chars": r["data_chars"],
+                    "ok": r["success"],
+                    "attempt": r["attempt"],
                     "server": r["server"],
                     "tools": r["tools"],
                     "preview": (r["response_preview"] or

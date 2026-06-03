@@ -12,6 +12,7 @@ import streamlit as st
 
 import db
 from logging_setup import configure_logging
+from mcp_core import MCPClient
 
 
 @st.cache_resource
@@ -23,11 +24,36 @@ def init_app() -> bool:
     return True
 
 
+@st.cache_resource
+def get_client_and_tools(signature: str):
+    """Build an MCP client and discover tools. Cached across reruns and shared by
+    the Chat and Benchmark pages; the `signature` (from server_signature) busts the
+    cache when server config or a token changes. Returns (client, tools, errors)."""
+    client = MCPClient()
+    tools = client.discover_tools()
+    return client, tools, dict(client.errors)
+
+
+def server_signature() -> str:
+    """Cache key for discovery. Includes a per-server token fingerprint so that
+    (re)authenticating or refreshing a token busts the cache and re-discovers —
+    otherwise a stale 'not authenticated' result would persist after re-auth."""
+    parts = []
+    for s in db.list_servers(enabled_only=True):
+        fp = ""
+        if s["auth_type"] == "oauth":
+            tok = (db.get_oauth_token(s["name"]) or {}).get("access_token") or ""
+            fp = tok[-12:]  # changes on re-auth/refresh, not the full secret
+        parts.append(f"{s['name']}:{s['url']}:{s['auth_type']}:{fp}")
+    return "|".join(parts)
+
+
 # Sidebar pages: (script path, label, icon). The entry script (app.py) is shown as
 # "Home". We hide Streamlit's auto nav (which would label the entry "app") and
 # render these custom links instead.
 _NAV_PAGES = [
     ("app.py", "Home", "💬"),
+    ("pages/5_Benchmark.py", "Benchmark", "⚗️"),
     ("pages/1_MCP_Servers.py", "MCP Servers", "🔌"),
     ("pages/2_System_Prompts.py", "System Prompts", "📝"),
     ("pages/3_Settings.py", "Settings", "⚙️"),
