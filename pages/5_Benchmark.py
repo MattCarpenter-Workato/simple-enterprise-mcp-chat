@@ -15,7 +15,8 @@ import db
 import providers
 from chat_runner import server_of
 from ui_common import (init_app, render_nav, effective_system_prompt,
-                       display_text, get_client_and_tools, server_signature)
+                       display_text, get_client_and_tools, server_signature,
+                       available_models, model_fingerprint)
 
 st.set_page_config(page_title="Benchmark", page_icon="⚗️", layout="wide")
 init_app()
@@ -35,9 +36,11 @@ if disc_errors:
                + "; ".join(f"{k}: {v}" for k, v in disc_errors.items())
                + "  —  fix on the **🔌 MCP Servers** page.")
 
-# All selectable variants: every model under every provider.
+# All selectable variants: every model under every provider (live list for
+# Claude/OpenAI, static otherwise).
 VARIANTS: list[tuple[str, str]] = [
-    (p, m) for p in providers.PROVIDER_NAMES for m in providers.model_options(p)
+    (p, m) for p in providers.PROVIDER_NAMES
+    for m in available_models(p, model_fingerprint(p))
 ]
 def _variant_label(v: tuple[str, str]) -> str:
     return f"{v[0]} · {v[1]}"
@@ -62,6 +65,9 @@ selected = st.multiselect(
     "Models to compare", VARIANTS, format_func=_variant_label,
     default=[v for v in VARIANTS if v == default_variant],
 )
+if st.button("🔄 Refresh models", key="refresh_models_bench"):
+    available_models.clear()
+    st.rerun()
 
 # MCP servers to expose to the models for this run. Tools are prefixed
 # `server__tool`, so we filter the discovered tool list down to the chosen servers.

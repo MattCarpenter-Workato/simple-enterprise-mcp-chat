@@ -11,6 +11,7 @@ from typing import Any, Optional
 import streamlit as st
 
 import db
+import providers
 from logging_setup import configure_logging
 from mcp_core import MCPClient
 
@@ -32,6 +33,30 @@ def get_client_and_tools(signature: str):
     client = MCPClient()
     tools = client.discover_tools()
     return client, tools, dict(client.errors)
+
+
+def model_fingerprint(name: str) -> str:
+    """Non-secret fingerprint of the provider's API key, so the cached model list
+    busts when the key changes. Empty for non-live providers (no key involved)."""
+    spec = providers.PROVIDERS.get(name) or {}
+    if not spec.get("live"):
+        return ""
+    key_secret = "OPENAI_API_KEY" if spec["kind"] == "openai" else "CLAUDE_API_KEY"
+    return (db.get_secret(key_secret) or "")[-8:]
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def available_models(name: str, fingerprint: str) -> list[str]:
+    """Model dropdown options for a provider: the live API list when available,
+    else the static fallback. `fingerprint` only participates in the cache key
+    (busts on key change) — it is otherwise unused. Clear this cache to refresh."""
+    live = providers.fetch_models(name)
+    if not live:
+        return providers.model_options(name)
+    chosen = db.get_secret(providers.PROVIDERS[name]["model_key"])
+    if chosen and chosen not in live:
+        live = [chosen] + live
+    return live
 
 
 def server_signature() -> str:

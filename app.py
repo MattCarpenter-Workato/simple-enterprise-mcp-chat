@@ -19,7 +19,8 @@ import db
 import providers
 from oauth_store import OAuthHandler
 from ui_common import (init_app, render_nav, render_history, effective_system_prompt,
-                       get_client_and_tools, server_signature)
+                       get_client_and_tools, server_signature,
+                       available_models, model_fingerprint)
 
 st.set_page_config(page_title="MCP Chat", page_icon="💬", layout="wide")
 init_app()
@@ -89,7 +90,7 @@ with st.sidebar:
         st.session_state.provider = provider_name
         st.session_state.model = providers.default_model(provider_name)
 
-    model_opts = providers.model_options(provider_name)
+    model_opts = available_models(provider_name, model_fingerprint(provider_name))
     # Guarantee the active model is selectable so a locked chat never falls back
     # to opts[0].
     if st.session_state.model not in model_opts:
@@ -98,6 +99,9 @@ with st.sidebar:
         "Model", model_opts, index=model_opts.index(st.session_state.model),
         disabled=locked,
     )
+    if st.button("🔄 Refresh models", width='stretch', key="refresh_models"):
+        available_models.clear()
+        st.rerun()
 
     if locked:
         st.caption(f"🔒 Locked to **{st.session_state.provider}** for this chat — "
