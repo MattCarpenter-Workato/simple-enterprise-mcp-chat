@@ -19,7 +19,7 @@ from typing import Any, Optional
 import requests
 
 import db
-from oauth_store import get_token_for_server
+from oauth_store import OAuthHandler
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,7 @@ class MCPClient:
         self.servers: dict[str, str] = {}              # name -> url
         self.headers: dict[str, dict[str, str]] = {}   # name -> http headers
         self.errors: dict[str, str] = {}               # name -> error message
+        self._oauth_cfg: dict[str, Any] = {}           # name -> oauth config (for refresh)
         # Captured from the most recent request() — used for verbose file logging.
         self.last_response_headers: dict[str, str] = {}
         self.last_response_body: Any = None
@@ -39,16 +40,23 @@ class MCPClient:
     # -- connection / auth ----------------------------------------------------
 
     def load_servers(self) -> dict[str, str]:
-        """Resolve enabled servers from the DB, acquiring OAuth tokens as needed."""
+        """Resolve enabled servers from the DB, acquiring OAuth tokens as needed.
+
+        OAuth is resolved NON-interactively here (stored token, else refresh) so
+        page loads never block on a browser flow. If neither works, the server is
+        flagged for re-authentication (the MCP Servers page does the browser flow).
+        """
         self.servers, self.headers, self.errors = {}, {}, {}
 
         for s in db.list_servers(enabled_only=True):
             name, url, auth_type = s["name"], s["url"], s["auth_type"]
 
             if auth_type == "oauth":
-                token = get_token_for_server(name, url, s.get("oauth"))
+                self._oauth_cfg[name] = s.get("oauth")
+                token = OAuthHandler(name, url, s.get("oauth")).token_noninteractive()
                 if not token:
-                    self.errors[name] = "OAuth authentication failed"
+                    self.errors[name] = ("not authenticated - click Re-authenticate "
+                                         "on the MCP Servers page")
                     continue
                 self.headers[name] = {"Authorization": f"Bearer {token}"}
             elif auth_type == "token":
@@ -87,23 +95,49 @@ class MCPClient:
 
         for name, url in self.servers.items():
             try:
-                result = self.request(url, "tools/list", headers=self.headers.get(name))
-                for tool in result.get("result", {}).get("tools", []):
-                    schema = tool.get("inputSchema", {}) or {}
-                    schema.setdefault("type", "object")
-                    if not schema.get("properties"):
-                        schema["properties"] = {}
-                    tools.append({
-                        "name": f"{name}__{tool['name']}",
-                        "description": tool.get("description", ""),
-                        "inputSchema": schema,
-                    })
-                logger.info("Discovered %d tools from %s", len(tools), name)
+                tools.extend(self._list_tools(name, url))
+                logger.info("Discovered tools from %s", name)
+            except requests.HTTPError as e:
+                # A 401 means the server rejected our token (expired/revoked even if
+                # we thought it valid). Try one silent refresh + retry, else flag it.
+                if (e.response is not None and e.response.status_code == 401
+                        and name in self._oauth_cfg):
+                    new = OAuthHandler(name, url, self._oauth_cfg.get(name)).refresh_if_possible()
+                    if new:
+                        self.headers[name] = {"Authorization": f"Bearer {new}"}
+                        try:
+                            tools.extend(self._list_tools(name, url))
+                            logger.info("Discovered tools from %s (after refresh)", name)
+                            continue
+                        except Exception as e2:  # noqa: BLE001
+                            self.errors[name] = f"unauthorized after token refresh: {e2}"
+                            continue
+                    self.errors[name] = ("401 Unauthorized - token expired. "
+                                         "Re-authenticate on the MCP Servers page.")
+                else:
+                    self.errors[name] = str(e)
+                logger.error("Failed to discover tools from %s: %s", name, e)
             except Exception as e:  # noqa: BLE001 - surface per-server, keep going
                 self.errors[name] = str(e)
                 logger.error("Failed to discover tools from %s: %s", name, e)
 
         return tools
+
+    def _list_tools(self, name: str, url: str) -> list[dict[str, Any]]:
+        """Call tools/list for one server and return MCP-native tool dicts."""
+        result = self.request(url, "tools/list", headers=self.headers.get(name))
+        out: list[dict[str, Any]] = []
+        for tool in result.get("result", {}).get("tools", []):
+            schema = tool.get("inputSchema", {}) or {}
+            schema.setdefault("type", "object")
+            if not schema.get("properties"):
+                schema["properties"] = {}
+            out.append({
+                "name": f"{name}__{tool['name']}",
+                "description": tool.get("description", ""),
+                "inputSchema": schema,
+            })
+        return out
 
     # -- execution ------------------------------------------------------------
 
@@ -119,12 +153,25 @@ class MCPClient:
                         f"Available servers: {list(self.servers.keys())}")
 
             self.last_job_id = None
-            result = self.request(
-                self.servers[server_name],
-                "tools/call",
-                {"name": tool_name, "arguments": arguments},
-                headers=self.headers.get(server_name),
-            )
+            url = self.servers[server_name]
+            params = {"name": tool_name, "arguments": arguments}
+            try:
+                result = self.request(url, "tools/call", params,
+                                      headers=self.headers.get(server_name))
+            except requests.HTTPError as e:
+                # Token rejected mid-session — refresh once and retry.
+                if (e.response is not None and e.response.status_code == 401
+                        and server_name in self._oauth_cfg):
+                    new = OAuthHandler(server_name, url,
+                                       self._oauth_cfg.get(server_name)).refresh_if_possible()
+                    if not new:
+                        return ("Error: token expired - re-authenticate on the "
+                                "MCP Servers page.")
+                    self.headers[server_name] = {"Authorization": f"Bearer {new}"}
+                    result = self.request(url, "tools/call", params,
+                                          headers=self.headers.get(server_name))
+                else:
+                    raise
             self.last_job_id = self._detect_job_id(self.last_response_headers, result)
             content = result.get("result", {}).get("content", [])
             if content:

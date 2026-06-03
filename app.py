@@ -38,10 +38,17 @@ def get_client_and_tools(signature: str):
 
 
 def server_signature() -> str:
-    return "|".join(
-        f"{s['name']}:{s['url']}:{s['auth_type']}"
-        for s in db.list_servers(enabled_only=True)
-    )
+    """Cache key for discovery. Includes a per-server token fingerprint so that
+    (re)authenticating or refreshing a token busts the cache and re-discovers —
+    otherwise a stale 'not authenticated' result would persist after re-auth."""
+    parts = []
+    for s in db.list_servers(enabled_only=True):
+        fp = ""
+        if s["auth_type"] == "oauth":
+            tok = (db.get_oauth_token(s["name"]) or {}).get("access_token") or ""
+            fp = tok[-12:]  # changes on re-auth/refresh, not the full secret
+        parts.append(f"{s['name']}:{s['url']}:{s['auth_type']}:{fp}")
+    return "|".join(parts)
 
 
 def load_conversation(conv_id: int) -> None:
@@ -143,6 +150,9 @@ st.caption(f"Provider: **{provider_name}** · Model: **{st.session_state.model}*
 if disc_errors:
     st.warning("Some servers had issues: " +
                "; ".join(f"{k}: {v}" for k, v in disc_errors.items()))
+    if st.button("🔄 Reconnect / re-discover tools"):
+        get_client_and_tools.clear()
+        st.rerun()
 
 # Per-chat logs & token/latency usage.
 if st.session_state.conversation_id is not None:

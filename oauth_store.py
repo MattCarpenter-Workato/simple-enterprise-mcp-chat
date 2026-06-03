@@ -147,9 +147,15 @@ class OAuthHandler:
 
     def _auto_register_client(self):
         """Register an OAuth client via dynamic client registration (RFC 7591),
-        reusing stored client credentials when available."""
-        stored_data = self.get_stored_token()
-        if stored_data and 'client_id' in stored_data:
+        reusing stored client credentials when available.
+
+        Check the RAW stored row for a client_id — NOT get_stored_token(), which
+        returns None once the *access* token expires. Re-registering on every
+        access-token expiry would mint a new client_id that no longer matches the
+        stored refresh token, so refresh fails with 400 and forces endless re-auth.
+        """
+        stored_data = db.get_oauth_token(self.server_name) or {}
+        if stored_data.get('client_id'):
             print(f"  Using stored client credentials for {self.server_name}")
             self.client_id = stored_data['client_id']
             self.client_secret = stored_data.get('client_secret')
@@ -220,17 +226,36 @@ class OAuthHandler:
             print(f"Failed to refresh token: {e}")
             return None
 
+    def refresh_if_possible(self) -> Optional[str]:
+        """Refresh using the stored refresh token (no browser). New access token
+        or None if there's no refresh token / the refresh fails."""
+        stored = db.get_oauth_token(self.server_name) or {}
+        rt = stored.get('refresh_token')
+        if not rt:
+            return None
+        refreshed = self.refresh_token(rt)
+        return refreshed.get('access_token') if refreshed else None
+
+    def token_noninteractive(self) -> Optional[str]:
+        """Return a usable access token WITHOUT opening a browser: a valid stored
+        token, else a refreshed one. None means the caller should prompt the user
+        to re-authenticate (via authorize())."""
+        valid = self.get_stored_token()
+        if valid:
+            return valid.get('access_token')
+        return self.refresh_if_possible()
+
     def authorize(self) -> Optional[str]:
         """Return a valid access token, running the browser PKCE flow if needed."""
-        stored_token = self.get_stored_token()
-        if stored_token:
+        valid = self.get_stored_token()
+        if valid:
             print(f"Using stored token for {self.server_name}")
-            return stored_token.get('access_token')
+            return valid.get('access_token')
 
-        if stored_token and 'refresh_token' in stored_token:
-            refreshed = self.refresh_token(stored_token['refresh_token'])
-            if refreshed:
-                return refreshed.get('access_token')
+        # Try a silent refresh before falling back to the interactive flow.
+        refreshed = self.refresh_if_possible()
+        if refreshed:
+            return refreshed
 
         print(f"\nStarting OAuth authentication for {self.server_name}...")
         print(f"Waiting for callback on http://localhost:{self.redirect_port}/callback")
