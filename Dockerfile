@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
-# Build: docker build -t mcp-chat .
-# Multi-arch publish is handled by .github/workflows/release.yml (buildx).
+# Build:           docker build -t mcp-chat .
+# Multi-arch push: docker buildx build --platform linux/amd64,linux/arm64 -t <repo>:<tag> --push .
 
-FROM python:3.12-slim
+FROM python:3.12-alpine
 
 # uv for fast, lockfile-faithful installs.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
