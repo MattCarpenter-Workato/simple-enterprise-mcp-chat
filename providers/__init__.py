@@ -40,13 +40,16 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "kind": "openai",
         "model_key": "OLLAMA_MODEL",
         "default_model": "llama3.2",
-        "models": ["llama3.2", "mistral", "qwen3:8b", "qwen2.5"],
+        "models": ["llama3.2", "mistral", "qwen3:8b", "qwen2.5"],  # static fallback
+        "live": True,
+        "local": True,  # no API key, no per-model pricing gate
     },
     "LM Studio": {
         "kind": "openai",
         "model_key": "LMSTUDIO_MODEL",
         "default_model": "local-model",
         "models": ["local-model"],
+        "local": True,
     },
 }
 
@@ -107,7 +110,11 @@ def fetch_models(name: str) -> Optional[list[str]]:
         return None
     try:
         client = get_provider(name).client  # raises ValueError if the key is missing
-        if spec["kind"] == "claude":
+        if spec.get("local"):  # Ollama: keep every installed *chat* model (no gpt-*
+            # filter), but drop embedding models — they speak a different endpoint and
+            # would 404 on a chat turn. Ollama's /v1/models doesn't tag model type.
+            ids = [m.id for m in client.models.list().data if "embed" not in m.id.lower()]
+        elif spec["kind"] == "claude":
             ids = [m.id for m in client.models.list(limit=100).data
                    if m.id.startswith("claude")]
         else:  # openai
@@ -117,6 +124,18 @@ def fetch_models(name: str) -> Optional[list[str]]:
     except Exception as e:  # noqa: BLE001 — any failure falls back to the static list
         logger.info("Live model fetch failed for %s: %s", name, e)
         return None
+
+
+def ping(name: str) -> Optional[str]:
+    """Liveness probe: None if the provider's endpoint is reachable, else a short
+    error string. Intended for local providers (Ollama/LM Studio) so the UI can
+    show 'service running?' without waiting for a chat turn to fail. Deliberately
+    uncached — callers want the current state, not the 1h-cached model list."""
+    try:
+        get_provider(name).client.models.list()
+        return None
+    except Exception as e:  # noqa: BLE001 — any failure means "not reachable"
+        return str(e)
 
 
 def _ollama_base_url() -> str:

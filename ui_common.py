@@ -42,6 +42,9 @@ def model_fingerprint(name: str) -> str:
     spec = providers.PROVIDERS.get(name) or {}
     if not spec.get("live"):
         return ""
+    if spec.get("local"):
+        # Keyless local provider (Ollama): bust the cache when the host changes.
+        return (db.get_secret("OLLAMA_BASE_URL") or "")[-12:]
     key_secret = "OPENAI_API_KEY" if spec["kind"] == "openai" else "CLAUDE_API_KEY"
     return (db.get_secret(key_secret) or "")[-8:]
 
@@ -54,6 +57,12 @@ def available_models(name: str, fingerprint: str) -> list[str]:
     live = providers.fetch_models(name)
     if not live:
         return providers.model_options(name)
+    # Local providers (Ollama): the discovered list is authoritative — a model that
+    # isn't installed can't run, so don't inject the configured default if it's
+    # absent (it would just 404 on the first turn). Paid providers keep their custom
+    # model visible since an arbitrary id may still be a valid API model.
+    if (providers.PROVIDERS.get(name) or {}).get("local"):
+        return live
     chosen = db.get_secret(providers.PROVIDERS[name]["model_key"])
     if chosen and chosen not in live:
         live = [chosen] + live
@@ -67,7 +76,8 @@ def selectable_models(provider: str) -> list[str]:
     appears in Settings → Model pricing) and hidden until the user gives it a cost.
     Not cached: it writes placeholder rows and must reflect pricing edits live."""
     models = available_models(provider, model_fingerprint(provider))
-    if not (providers.PROVIDERS.get(provider) or {}).get("live"):
+    spec = providers.PROVIDERS.get(provider) or {}
+    if not spec.get("live") or spec.get("local"):
         return list(models)
     out = []
     for m in models:

@@ -18,7 +18,7 @@ import chat_runner
 import db
 import providers
 from ui_common import (init_app, render_nav, render_history, effective_system_prompt,
-                       get_client_and_tools, server_signature,
+                       get_client_and_tools, server_signature, available_models,
                        selectable_models, log_table_rows, fmt_cost)
 
 st.set_page_config(page_title="MCP Chat", page_icon="💬", layout="wide")
@@ -88,8 +88,21 @@ with st.sidebar:
         "Model", model_opts, index=model_opts.index(st.session_state.model),
         disabled=locked,
     )
-    if (providers.PROVIDERS.get(provider_name) or {}).get("live"):
+    _spec = providers.PROVIDERS.get(provider_name) or {}
+    if _spec.get("live") and not _spec.get("local"):
         st.caption("Only priced models shown — add prices in ⚙️ Settings → Model pricing.")
+
+    # Local providers (Ollama/LM Studio): show whether the service is reachable and
+    # let the user re-discover installed models after pulling a new one.
+    if _spec.get("local"):
+        if providers.ping(provider_name) is None:
+            st.caption("🟢 Service reachable")
+        else:
+            st.caption("🔴 Not reachable — is the server running? "
+                       "Run `ollama serve` or check OLLAMA_BASE_URL in ⚙️ Settings.")
+        if st.button("🔄 Refresh models", key="local_refresh", disabled=locked):
+            available_models.clear()
+            st.rerun()
 
     if locked:
         st.caption(f"🔒 Locked to **{st.session_state.provider}** for this chat — "
