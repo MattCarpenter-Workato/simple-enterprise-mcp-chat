@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 import db
 import providers
@@ -126,6 +127,43 @@ def display_text(message: dict[str, Any]) -> Optional[tuple[str, str]]:
         return (role, text) if text else None
 
     return None
+
+
+def copy_button(text: str, label: str = "📋 Copy to clipboard",
+                height: int = 46, key: str = "copy") -> None:
+    """Render a button that copies `text` to the user's clipboard in the browser.
+
+    Uses a temp-textarea + document.execCommand('copy') inside the component iframe
+    (navigator.clipboard is usually blocked there). Works for web/Docker since the
+    copy happens client-side. `text` is embedded as a safe JS string literal."""
+    payload = json.dumps(text)  # safe JS string literal (quotes/newlines/unicode)
+    btn_id = f"copybtn_{key}"
+    components.html(
+        f"""
+        <button id="{btn_id}" style="
+            width:100%; padding:8px 12px; cursor:pointer; border-radius:8px;
+            border:1px solid rgba(49,51,63,0.2); background:#fff; color:#262730;
+            font-size:14px; font-weight:600;">{label}</button>
+        <script>
+        const data = {payload};
+        const btn = document.getElementById("{btn_id}");
+        btn.addEventListener("click", () => {{
+            const ta = document.createElement("textarea");
+            ta.value = data;
+            ta.style.position = "fixed"; ta.style.opacity = "0";
+            document.body.appendChild(ta);
+            ta.focus(); ta.select();
+            let ok = false;
+            try {{ ok = document.execCommand("copy"); }} catch (e) {{ ok = false; }}
+            document.body.removeChild(ta);
+            const original = {json.dumps(label)};
+            btn.textContent = ok ? "✓ Copied!" : "⚠ Press Ctrl/Cmd+C";
+            setTimeout(() => {{ btn.textContent = original; }}, 2000);
+        }});
+        </script>
+        """,
+        height=height,
+    )
 
 
 def fmt_cost(value: Optional[float]) -> str:

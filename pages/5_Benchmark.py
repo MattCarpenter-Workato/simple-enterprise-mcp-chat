@@ -6,6 +6,7 @@ side. This is the core tuning workflow: change a recipe or model, re-run the sam
 prompt, and see what got cheaper/faster without hurting the answer.
 """
 
+import json
 import logging
 
 import streamlit as st
@@ -16,13 +17,114 @@ import providers
 from chat_runner import server_of
 from ui_common import (init_app, render_nav, effective_system_prompt,
                        display_text, get_client_and_tools, server_signature,
-                       available_models, model_fingerprint, log_table_rows, fmt_cost)
+                       available_models, model_fingerprint, log_table_rows, fmt_cost,
+                       copy_button)
 
 st.set_page_config(page_title="Benchmark", page_icon="⚗️", layout="wide")
 init_app()
 render_nav()
 
 logger = logging.getLogger("mcpchat.benchmark")
+
+# Instruction text bundled into the export payload so an external LLM knows how to
+# analyze the run (the export is JSON-only; this lives in its `instructions` field).
+_ANALYSIS_INSTRUCTIONS = (
+    "You are an expert evaluator of LLM + MCP-tool benchmark runs. Analyze EVERY part "
+    "of the benchmark run in the JSON below and produce a thorough, structured report. "
+    "`run.mode` is 'models' (variants differ by provider/model, sharing servers) or "
+    "'servers' (one fixed model, one variant per MCP server) — frame the comparison "
+    "accordingly. For every variant, assess and compare: cost (est_cost_usd) and token "
+    "efficiency (prompt/completion/total tokens); latency (total_ms end-to-end and "
+    "llm_ms model time, noting tool overhead); tool reliability (tool_calls vs "
+    "tool_errors and retries — call out failures); and answer quality/correctness "
+    "(read each variant's final_answer against run.prompt). Use the per-call `calls` "
+    "data to explain WHY a variant was slow or expensive — e.g. oversized tool results "
+    "(data_chars) inflating later prompt tokens, repeated/retried tool calls, failed "
+    "calls (success=false, see error), or unusually slow calls. Then deliver: (1) the "
+    "best variant for cost, for speed, and overall best tradeoff, each justified with "
+    "numbers; (2) concrete tuning recommendations (which model/server to keep, prompt "
+    "or tool changes); (3) anomalies or data-quality caveats."
+)
+
+
+def _final_answer(conversation_id) -> str:
+    """Last assistant text for a variant's conversation (for the export payload)."""
+    if not conversation_id:
+        return ""
+    for m in reversed(db.get_messages(conversation_id)):
+        shown = display_text(m)
+        if shown and shown[0] == "assistant" and shown[1]:
+            return shown[1]
+    return ""
+
+
+def _call_arguments(detail_json):
+    if not detail_json:
+        return None
+    try:
+        return json.loads(detail_json).get("arguments")
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def _call_preview(lg: dict) -> str:
+    if lg["response_preview"]:
+        return lg["response_preview"]
+    if lg["detail_json"]:
+        try:
+            return json.loads(lg["detail_json"]).get("result_preview", "")
+        except (json.JSONDecodeError, TypeError):
+            return ""
+    return ""
+
+
+def _build_run_export(run: dict, rows: list[dict], row_key) -> str:
+    """Assemble the whole run (instructions + metadata + per-variant aggregates +
+    every per-call row + final answers) into one JSON string for an external LLM."""
+    sp = db.get_prompt(run["system_prompt_id"]) if run.get("system_prompt_id") else None
+    variants = [
+        {
+            "label": row_key(r),
+            "provider": r["provider"], "model": r["model"], "servers": r["servers"],
+            "status": r["status"], "error": r["error"], "total_ms": r["total_ms"],
+            "prompt_tokens": r["prompt_tokens"], "completion_tokens": r["completion_tokens"],
+            "total_tokens": r["total_tokens"], "llm_calls": r["llm_calls"],
+            "llm_ms": r["llm_ms"], "tool_calls": r["tool_calls"],
+            "tool_errors": r["tool_errors"], "retries": r["retries"],
+            "est_cost_usd": db.estimate_cost(r["provider"], r["model"],
+                                             r["prompt_tokens"], r["completion_tokens"]),
+            "final_answer": _final_answer(r["conversation_id"]),
+        }
+        for r in rows
+    ]
+    label_by_conv = {r["conversation_id"]: row_key(r) for r in rows}
+    calls = [
+        {
+            "variant": label_by_conv.get(lg["conversation_id"], ""),
+            "event_type": lg["event_type"], "provider": lg["provider"], "model": lg["model"],
+            "call_type": lg["call_type"], "prompt_tokens": lg["prompt_tokens"],
+            "completion_tokens": lg["completion_tokens"], "total_tokens": lg["total_tokens"],
+            "duration_ms": lg["duration_ms"], "data_chars": lg["data_chars"],
+            "success": lg["success"], "error": lg["error"], "attempt": lg["attempt"],
+            "server": lg["server"], "tools": lg["tools"],
+            "arguments": _call_arguments(lg["detail_json"]), "preview": _call_preview(lg),
+        }
+        for lg in db.benchmark_run_logs(run["id"])
+    ]
+    payload = {
+        "instructions": _ANALYSIS_INSTRUCTIONS,
+        "run": {
+            "id": run["id"], "created_at": run["created_at"], "label": run["label"],
+            "notes": run["notes"], "mode": run.get("mode") or "models",
+            "prompt": run["prompt"],
+            "system_prompt": ({"id": sp["id"], "name": sp["name"], "content": sp["content"]}
+                              if sp else None),
+        },
+        "variants": variants,
+        "calls": calls,
+    }
+    return json.dumps(payload, indent=2, default=str)
+
 
 st.title("⚗️ Benchmark — compare models or MCP servers on one prompt")
 st.caption("Run the same prompt across multiple models (against your current MCP "
@@ -265,6 +367,19 @@ if ok_rows:
         st.bar_chart({_row_key(r): (db.estimate_cost(
             r["provider"], r["model"], r["prompt_tokens"], r["completion_tokens"]) or 0)
             for r in ok_rows})
+
+# Export the whole run as a JSON analysis prompt for an external LLM.
+st.markdown("### 🧠 Export for LLM analysis")
+st.caption("Copies a single JSON payload — analysis instructions plus this run's full "
+           "data (metadata, per-variant metrics & cost, every LLM/tool call, and final "
+           "answers) — to paste into any LLM.")
+_export = _build_run_export(run, rows, _row_key)
+copy_button(_export, key=f"bench_{run['id']}")
+with st.expander("Preview / download JSON"):
+    st.download_button("⬇ Download JSON", _export,
+                       file_name=f"benchmark_run_{run['id']}.json",
+                       mime="application/json", key=f"dl_bench_{run['id']}")
+    st.code(_export, language="json")
 
 # Full final answers for quality eyeballing.
 st.markdown("**Final answers**")
