@@ -58,8 +58,8 @@ Open **http://localhost:8501** in your browser (bookmark it).
 **4. First-time setup, in the browser**
 1. **⚙️ Settings** → add an OpenAI and/or Claude API key → **Save**.
 2. **🔌 MCP Servers** → add a server (name + URL + auth type).
-3. For OAuth servers, click **🔐 Re-authenticate** (or **🔄 Reconnect MCP servers**) —
-   a **sign-in link** appears; click it and log in.
+3. Adding an **OAuth** server starts sign-in automatically — click the **🔐 sign-in link**
+   that appears and log in (re-run later with **🔄 Reconnect MCP servers** if needed).
 4. **💬 Home** → pick a model and start chatting.
 
 **Everyday use**
@@ -100,7 +100,7 @@ Then:
 1. Open **⚙️ Settings** (left nav) and add at least one API key (e.g. OpenAI or Claude).
 2. Open **🔌 MCP Servers**, add/enable a server, and authenticate if it uses OAuth.
 3. Go back to **💬 Home**, pick a provider/model and which servers to use, and start chatting.
-4. Open **⚗️ Benchmark** to run one prompt across several models and compare them.
+4. Open **⚗️ Benchmark** to run one prompt across several models or MCP servers and compare them.
 
 If you previously used the command-line version, your existing `.env` and
 `mcp_servers.json` (if present) are **imported automatically** into the database on first
@@ -332,8 +332,7 @@ returned**, plus a response preview. Tool calls additionally record **success/er
 **retry attempt** number (Nth call of that tool within the turn; `>1` marks a retry), and a
 `benchmark_run_id` when part of a benchmark. The shared turn runner also measures **total turn
 time** (end-to-end wall clock for one user message). A Workato **job ID** is auto-detected from
-tool response headers/body when present. See **[METRICS.md](METRICS.md)** for the full metric
-catalog and a Workato-tuning playbook.
+tool response headers/body when present.
 
 **Where to see it:**
 - **Per chat:** the *📊 Logs & usage* expander on the Chat page (token totals, LLM time, tool
@@ -424,7 +423,6 @@ simple-mcp-chat/
 ├── oauth_store.py             # OAuth 2.0 / PKCE flow with DB-backed token storage
 ├── logging_setup.py           # Rotating app-log file configuration
 ├── ui_common.py               # Shared Streamlit helpers (nav, MCP discovery, model lists)
-├── METRICS.md                 # Metric catalog + Workato-tuning playbook
 ├── Dockerfile                 # Container image (Alpine + uv); CMD runs Streamlit
 ├── docker-compose.yml         # Local run: ports 8501/8080, ./data volume
 ├── .dockerignore              # Keeps local state/secrets out of the image
