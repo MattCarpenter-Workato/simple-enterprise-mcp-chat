@@ -23,7 +23,70 @@ what each costs in tokens, latency, and tool reliability.
 
 ---
 
-## Quick start
+## Run with Docker (recommended — no coding needed)
+
+This is the easiest way to run the app. **Docker** packages everything (Python,
+Streamlit, and all dependencies) into one ready-to-run image, so the only thing you
+install is Docker itself. Everything runs **on your own computer** and your data
+stays there.
+
+**1. Install Docker Desktop** (one time)
+Download it for Windows or Mac from
+<https://www.docker.com/products/docker-desktop/>, install it, then open it once and
+wait until the whale icon stops animating — that means Docker is running.
+
+**2. Get the `docker-compose.yml` file**
+That single file is all you need (download it from this repo, or ask whoever shared
+the app for it). Put it in a folder, e.g. `Documents/mcp-chat/`.
+
+**3. Start the app**
+Open a terminal **in that folder**:
+- **Windows:** Shift + right-click the folder → *Open PowerShell window here*
+- **Mac:** right-click the folder → *Services* → *New Terminal at Folder*
+
+Then run:
+
+```bash
+docker compose up -d        # downloads the app the first time, then starts it
+```
+
+Open **http://localhost:8501** in your browser (bookmark it).
+
+**4. First-time setup, in the browser**
+1. **⚙️ Settings** → add an OpenAI and/or Claude API key → **Save**.
+2. **🔌 MCP Servers** → add a server (name + URL + auth type).
+3. For OAuth servers, click **🔐 Re-authenticate** (or **🔄 Reconnect MCP servers**) —
+   a **sign-in link** appears; click it and log in.
+4. **💬 Home** → pick a model and start chatting.
+
+**Everyday use**
+
+```bash
+docker compose down                          # stop the app (your data is kept)
+docker compose up -d                         # start it again later
+docker compose pull && docker compose up -d  # update to the newest version
+```
+
+**Where's my data?** Conversations, API keys, servers, sign-ins, and logs are saved
+in a **`data/` folder next to your `docker-compose.yml`** (the database, OAuth tokens,
+and logs), so they survive restarts and updates and are easy to back up or move.
+(Deleting that folder erases everything.)
+
+**If something goes wrong**
+- *"Cannot connect to the Docker daemon" / nothing happens* — Docker Desktop isn't
+  running. Start it, wait for the whale icon to settle, and try again.
+- *Port already in use* — something else is using `8501` or `8080`. Edit the `ports:`
+  lines in `docker-compose.yml` (keep `8080` mapped — it's needed for OAuth sign-in).
+- *Local AI servers (Ollama / LM Studio)* — inside Docker, `localhost` means the
+  container, not your computer. In **Settings**, point their URLs at
+  `host.docker.internal`, e.g. `http://host.docker.internal:11434`.
+
+> The same quick-start also appears on the image's
+> [Docker Hub page](https://hub.docker.com/r/mattcarpenterwkto/simple-enterprise-mcp-chat).
+
+---
+
+## Run from source (for developers)
 
 ```bash
 uv sync                       # install dependencies (incl. Streamlit)
