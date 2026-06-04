@@ -1,0 +1,24 @@
+# Build context hygiene — keep local state and secrets out of the published image.
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.git/
+.gitignore
+.gitattributes
+.claude/
+
+# Local runtime state — never bake into the image (lives in a mounted volume).
+data/
+logs/
+mcp_chat.db
+mcp_chat.db-*
+
+# Local config / secrets — users configure via the UI instead.
+.env
+mcp_servers.json
+
+# Docs / packaging not needed inside the image.
+README.md
+DOCKERHUB.md
+docker-compose.yml

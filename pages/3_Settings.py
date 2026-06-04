@@ -3,7 +3,7 @@
 import streamlit as st
 
 import db
-from ui_common import init_app, render_nav
+from ui_common import init_app, render_nav, available_models
 
 st.set_page_config(page_title="Settings", page_icon="⚙️", layout="wide")
 init_app()
@@ -78,6 +78,15 @@ with st.form("settings"):
         st.success("Settings saved.")
         st.rerun()
 
+# --- models ------------------------------------------------------------------
+st.divider()
+st.subheader("Models")
+st.caption("Live model lists (Claude/OpenAI) are cached. Refresh to re-fetch from "
+           "the provider API — e.g. after adding a key or when a new model ships.")
+if st.button("🔄 Refresh models"):
+    available_models.clear()
+    st.success("Model lists refreshed.")
+
 # --- danger zone -------------------------------------------------------------
 st.divider()
 st.subheader("Maintenance")
@@ -100,4 +109,16 @@ with st.popover("🔑 Clear all auth tokens (force re-sync)"):
             st.cache_resource.clear()  # bust the discovery cache so tools re-sync
             st.success(f"Cleared {removed} token(s). Re-authenticate each OAuth "
                        "server on the MCP Servers page.")
+            st.rerun()
+
+with st.popover("🗑 Clear all benchmark runs"):
+    st.caption("Permanently deletes every benchmark run and its variants, plus the "
+               "per-variant conversations they created (and their messages/logs). "
+               "Your regular chats, servers, keys, and prompts are kept.")
+    if st.checkbox("Yes, clear all benchmark runs", key="confirm_clear_benchmarks"):
+        if st.button("Clear benchmark runs", type="primary"):
+            removed = db.clear_all_benchmark_runs()
+            # The benchmark page may point at a now-deleted run.
+            st.session_state.pop("benchmark_run_id", None)
+            st.success(f"Cleared {removed} benchmark run(s).")
             st.rerun()

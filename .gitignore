@@ -11,6 +11,9 @@ __pycache__/oauth_handler.cpython-312.pyc
 # Log files
 logs/
 *.log
+
+# Docker bind-mount data folder (DB, OAuth tokens, logs)
+data/
 .claude/settings.json
 tmpclaude-5624-cwd
 .gitignore

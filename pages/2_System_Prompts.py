@@ -54,21 +54,21 @@ with edit_col:
                                placeholder="You are a concise assistant that…\n\n"
                                            "## Style\n- Use bullet points\n- Be brief",
                                key="new_prompt_content")
-    create = st.button("➕ Create", key="create_prompt")
+    save_new = st.button("💾 Save", key="save_prompt")
 with prev_col:
     st.caption("Preview")
     st.markdown(new_content or "_(nothing to preview)_")
 
-if create:
+if save_new:
     if not new_name or not new_content:
         st.error("Name and prompt are required.")
     else:
         try:
             db.save_prompt(new_name, new_content)
-            # Reset the input fields on success.
+            # Reset the input fields on success so it's ready for the next prompt.
             for k in ("new_prompt_name", "new_prompt_content"):
                 st.session_state.pop(k, None)
-            st.success(f"Created '{new_name}'.")
+            st.success(f"Saved '{new_name}'.")
             st.rerun()
         except Exception as e:  # noqa: BLE001 (likely a duplicate name)
             st.error(f"Could not save: {e}")

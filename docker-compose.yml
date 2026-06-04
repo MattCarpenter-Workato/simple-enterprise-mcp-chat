@@ -1,0 +1,20 @@
+# Run the app locally with Docker — no Python needed.
+#
+#   Start:   docker compose up -d     (downloads the image on first run; open http://localhost:8501)
+#   Update:  docker compose pull && docker compose up -d
+#   Stop:    docker compose down       (your data is kept in the ./data folder)
+#
+# Override the image tag without editing this file:  MCP_CHAT_TAG=v1.2.0 docker compose up -d
+# Building from source instead of pulling (developers):
+#   docker build -t mattcarpenterwkto/simple-enterprise-mcp-chat:latest .
+services:
+  mcp-chat:
+    image: mattcarpenterwkto/simple-enterprise-mcp-chat:${MCP_CHAT_TAG:-latest}
+    ports:
+      - "127.0.0.1:8501:8501"      # Streamlit UI (loopback-only — not exposed to the LAN)
+      - "127.0.0.1:8080:8080"      # OAuth callback (must match redirect http://localhost:8080/callback)
+    volumes:
+      # Bind mount: all state lives in a ./data folder next to this file, so it's
+      # easy to find, back up, or move. The folder is created automatically.
+      - ./data:/app/data           # SQLite DB, OAuth tokens, and logs
+    restart: unless-stopped

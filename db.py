@@ -22,8 +22,11 @@ import threading
 from datetime import datetime
 from typing import Any, Optional
 
-# Database file lives next to this module (repo root)
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_chat.db")
+# Database file lives in the data directory. Defaults to this module's directory
+# (repo root) so a local `uv run` is unchanged; set MCP_CHAT_DATA_DIR to relocate
+# all persistent state (used by Docker to point at a mounted volume).
+DATA_DIR = os.environ.get("MCP_CHAT_DATA_DIR") or os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(DATA_DIR, "mcp_chat.db")
 
 # One connection PER THREAD. Streamlit runs each rerun/session on its own
 # ScriptRunner thread; sharing a single sqlite connection across them can block
@@ -41,6 +44,7 @@ def get_conn() -> sqlite3.Connection:
     """Return this thread's connection, initializing schema on first use."""
     conn = getattr(_local, "conn", None)
     if conn is None:
+        os.makedirs(DATA_DIR, exist_ok=True)  # ensure a relocated/volume data dir exists
         conn = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
@@ -124,13 +128,64 @@ def _init_schema(conn: sqlite3.Connection) -> None:
             servers           TEXT,            -- comma-separated
             tools             TEXT,            -- comma-separated
             response_preview  TEXT,
-            detail_json       TEXT
+            detail_json       TEXT,
+            success           INTEGER,         -- tool_call: 1 ok, 0 errored
+            error             TEXT,            -- tool_call: error text when success=0
+            attempt           INTEGER,         -- tool_call: Nth call of this tool in the turn
+            benchmark_run_id  INTEGER          -- set when the call is part of a benchmark run
         );
 
         CREATE INDEX IF NOT EXISTS idx_chat_logs_conv ON chat_logs(conversation_id);
+
+        -- Benchmarking: one run = the same prompt fanned out across variants.
+        -- mode='models': variants differ by (provider, model), shared servers.
+        -- mode='servers': fixed model, one variant per MCP server.
+        CREATE TABLE IF NOT EXISTS benchmark_runs (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at       TEXT NOT NULL,
+            prompt           TEXT NOT NULL,
+            system_prompt_id INTEGER,
+            label            TEXT,
+            notes            TEXT,
+            mode             TEXT DEFAULT 'models'   -- 'models' | 'servers'
+        );
+
+        CREATE TABLE IF NOT EXISTS benchmark_variants (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id          INTEGER NOT NULL,
+            provider        TEXT NOT NULL,
+            model           TEXT NOT NULL,
+            conversation_id INTEGER,
+            total_ms        INTEGER,
+            status          TEXT,              -- 'ok' | 'error'
+            error           TEXT,
+            servers         TEXT,              -- comma-joined server names exposed to this variant
+            FOREIGN KEY (run_id) REFERENCES benchmark_runs(id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_bench_variants_run ON benchmark_variants(run_id);
         """
     )
+    _migrate_chat_logs(conn)
     conn.commit()
+
+
+def _migrate_chat_logs(conn: sqlite3.Connection) -> None:
+    """Add columns introduced after the table was first created.
+
+    `_init_schema` uses CREATE TABLE IF NOT EXISTS, so a DB created by an older
+    build keeps its original chat_logs columns. SQLite's ALTER TABLE ADD COLUMN
+    is cheap and safe, so we add any missing ones idempotently."""
+    existing = {r["name"] for r in conn.execute("PRAGMA table_info(chat_logs)")}
+    additions = {
+        "success": "INTEGER",
+        "error": "TEXT",
+        "attempt": "INTEGER",
+        "benchmark_run_id": "INTEGER",
+    }
+    for col, decl in additions.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE chat_logs ADD COLUMN {col} {decl}")
 
 
 # =============================================================================
@@ -193,7 +248,8 @@ def add_server(name: str, url: str, auth_type: str = "token",
 
 def update_server(server_id: int, **fields) -> None:
     if "oauth" in fields:
-        fields["oauth_json"] = json.dumps(fields.pop("oauth")) if fields["oauth"] else None
+        oauth = fields.pop("oauth")
+        fields["oauth_json"] = json.dumps(oauth) if oauth else None
     if "enabled" in fields:
         fields["enabled"] = int(bool(fields["enabled"]))
     if not fields:
@@ -387,6 +443,7 @@ _LOG_COLUMNS = (
     "duration_ms", "data_chars", "server",
     "user_prompt", "system_prompt", "servers", "tools",
     "response_preview", "detail_json",
+    "success", "error", "attempt", "benchmark_run_id",
 )
 
 
@@ -503,6 +560,115 @@ def usage_by_server_tool() -> list[dict[str, Any]]:
         """
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+# =============================================================================
+# BENCHMARKING (run one prompt across model variants, then compare)
+# =============================================================================
+
+def create_benchmark_run(prompt: str, system_prompt_id: Optional[int] = None,
+                         label: Optional[str] = None, notes: Optional[str] = None,
+                         mode: str = "models") -> int:
+    conn = get_conn()
+    cur = conn.execute(
+        "INSERT INTO benchmark_runs (created_at, prompt, system_prompt_id, label, notes, mode) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (_now(), prompt, system_prompt_id, label, notes, mode),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def add_benchmark_variant(run_id: int, provider: str, model: str,
+                          conversation_id: Optional[int], total_ms: Optional[int],
+                          status: str, error: Optional[str] = None,
+                          servers: Optional[str] = None) -> int:
+    conn = get_conn()
+    cur = conn.execute(
+        "INSERT INTO benchmark_variants "
+        "(run_id, provider, model, conversation_id, total_ms, status, error, servers) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (run_id, provider, model, conversation_id, total_ms, status, error, servers),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_benchmark_runs() -> list[dict[str, Any]]:
+    rows = get_conn().execute(
+        "SELECT * FROM benchmark_runs ORDER BY id DESC"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def clear_all_benchmark_runs() -> int:
+    """Delete every benchmark run and its variants, plus the per-variant
+    conversations they created (and those conversations' messages and logs).
+    Returns the number of runs removed. Regular chats are untouched."""
+    conn = get_conn()
+    conv_ids = [r[0] for r in conn.execute(
+        "SELECT conversation_id FROM benchmark_variants "
+        "WHERE conversation_id IS NOT NULL"
+    ).fetchall()]
+    for cid in conv_ids:
+        conn.execute("DELETE FROM messages WHERE conversation_id = ?", (cid,))
+        conn.execute("DELETE FROM chat_logs WHERE conversation_id = ?", (cid,))
+        conn.execute("DELETE FROM conversations WHERE id = ?", (cid,))
+    n = conn.execute("SELECT COUNT(*) FROM benchmark_runs").fetchone()[0]
+    conn.execute("DELETE FROM benchmark_variants")
+    conn.execute("DELETE FROM benchmark_runs")
+    conn.commit()
+    return n
+
+
+def get_benchmark_variants(run_id: int) -> list[dict[str, Any]]:
+    rows = get_conn().execute(
+        "SELECT * FROM benchmark_variants WHERE run_id = ? ORDER BY id",
+        (run_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def benchmark_comparison(run_id: int) -> list[dict[str, Any]]:
+    """One row per variant: the recorded run status/total time joined to the
+    per-conversation token/latency/tool aggregates from chat_logs. Reuses the
+    same aggregate shape as conversation_usage()."""
+    variants = get_benchmark_variants(run_id)
+    conn = get_conn()
+    out = []
+    for v in variants:
+        agg = {
+            "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
+            "llm_calls": 0, "tool_calls": 0, "tool_errors": 0, "retries": 0,
+            "llm_ms": 0, "answer": "",
+        }
+        if v["conversation_id"] is not None:
+            r = conn.execute(
+                """
+                SELECT
+                    COALESCE(SUM(prompt_tokens), 0)     AS prompt_tokens,
+                    COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+                    COALESCE(SUM(total_tokens), 0)      AS total_tokens,
+                    COALESCE(SUM(CASE WHEN event_type='llm_call'  THEN 1 ELSE 0 END), 0) AS llm_calls,
+                    COALESCE(SUM(CASE WHEN event_type='tool_call' THEN 1 ELSE 0 END), 0) AS tool_calls,
+                    COALESCE(SUM(CASE WHEN event_type='tool_call' AND success=0 THEN 1 ELSE 0 END), 0) AS tool_errors,
+                    COALESCE(SUM(CASE WHEN event_type='tool_call' AND attempt>1 THEN 1 ELSE 0 END), 0) AS retries,
+                    COALESCE(SUM(CASE WHEN event_type='llm_call'  THEN duration_ms END), 0) AS llm_ms
+                FROM chat_logs WHERE conversation_id = ?
+                """,
+                (v["conversation_id"],),
+            ).fetchone()
+            agg.update(dict(r))
+            ans = conn.execute(
+                "SELECT response_preview FROM chat_logs "
+                "WHERE conversation_id = ? AND event_type='llm_call' "
+                "AND response_preview IS NOT NULL AND response_preview != '' "
+                "ORDER BY id DESC LIMIT 1",
+                (v["conversation_id"],),
+            ).fetchone()
+            agg["answer"] = ans["response_preview"] if ans else ""
+        out.append({**v, **agg})
+    return out
 
 
 # =============================================================================
