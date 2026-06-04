@@ -5,7 +5,7 @@ mcp_chat.db
 mcp_chat.db-*
 mcp_chat.db.bak
 __pycache__/
-__pycache__/oauth_handler.cpython-312.pyc
+*.pyc
 .DS_Store
 
 # Log files
@@ -14,8 +14,4 @@ logs/
 
 # Docker bind-mount data folder (DB, OAuth tokens, logs)
 data/
-.claude/settings.json
-tmpclaude-5624-cwd
-.gitignore
-tmpclaude-41fb-cwd
-__pycache__/chat-ollama.cpython-313.pyc
+.claude/
