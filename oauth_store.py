@@ -18,7 +18,7 @@ import time
 import webbrowser
 from datetime import datetime, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from urllib.parse import urlparse, parse_qs, urlencode
 
 import requests
@@ -245,8 +245,13 @@ class OAuthHandler:
             return valid.get('access_token')
         return self.refresh_if_possible()
 
-    def authorize(self) -> Optional[str]:
-        """Return a valid access token, running the browser PKCE flow if needed."""
+    def authorize(self, on_auth_url: Optional[Callable[[str], None]] = None) -> Optional[str]:
+        """Return a valid access token, running the browser PKCE flow if needed.
+
+        `on_auth_url`, if given, is called with the authorization URL before we
+        start waiting for the callback. The UI uses this to show a clickable
+        sign-in link — essential when running in a container, where
+        `webbrowser.open` can't reach the user's browser."""
         valid = self.get_stored_token()
         if valid:
             print(f"Using stored token for {self.server_name}")
@@ -282,9 +287,20 @@ class OAuthHandler:
         OAuthCallbackHandler.auth_code = None
         OAuthCallbackHandler.auth_error = None
 
-        server = HTTPServer(('localhost', self.redirect_port), OAuthCallbackHandler)
+        # Bind all interfaces (not just localhost) so a Docker port mapping can
+        # reach the callback; the redirect URI stays http://localhost:8080/callback.
+        server = HTTPServer(('', self.redirect_port), OAuthCallbackHandler)
+
+        # Let the caller surface the link (needed in containers); also try to open
+        # the local browser for native runs. webbrowser is a no-op in a headless
+        # container and must never raise.
+        if on_auth_url is not None:
+            on_auth_url(auth_url)
         print("\nOpening browser for authentication...")
-        webbrowser.open(auth_url)
+        try:
+            webbrowser.open(auth_url)
+        except Exception:  # noqa: BLE001 — no usable browser (e.g. in a container)
+            pass
 
         timeout = 300  # 5 minutes
         start_time = time.time()

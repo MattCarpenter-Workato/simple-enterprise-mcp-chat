@@ -18,13 +18,17 @@ st.caption("Configure the MCP servers the chat connects to. Stored in SQLite.")
 # Reconnect = authenticate any OAuth server that lacks a valid token (opens a
 # browser when needed), then re-discover tools for all enabled servers.
 if st.button("🔄 Reconnect MCP servers", key="resync_servers"):
-    with st.spinner("Reconnecting… a browser may open to authenticate."):
+    # Surfaced sign-in link — the browser may not open automatically (e.g. when
+    # running in Docker), so always show a clickable link to complete OAuth.
+    link_box = st.empty()
+    with st.spinner("Reconnecting… click the sign-in link if a browser doesn't open."):
         for s in db.list_servers(enabled_only=True):
             if s["auth_type"] == "oauth":
                 handler = OAuthHandler(s["name"], s["url"], s.get("oauth"))
                 if not handler.token_noninteractive():
                     try:
-                        handler.authorize()  # interactive browser flow
+                        handler.authorize(on_auth_url=lambda url, n=s["name"]: link_box.markdown(
+                            f"🔐 **{n}** needs sign-in — [click here to authenticate]({url})"))
                     except Exception as e:  # noqa: BLE001
                         st.warning(f"{s['name']}: authentication failed: {e}")
     get_client_and_tools.clear()
@@ -86,11 +90,15 @@ for s in servers:
                 st.caption(f"Token stored (expires: {tok.get('expires_at', 'n/a')})")
             else:
                 st.caption("No token stored yet.")
-            if st.button("🔐 Re-authenticate (opens browser)", key=f"auth_{s['id']}"):
-                with st.spinner("Completing OAuth in your browser…"):
+            if st.button("🔐 Re-authenticate", key=f"auth_{s['id']}"):
+                link_box = st.empty()
+                with st.spinner("Completing OAuth — click the sign-in link if a "
+                                "browser doesn't open…"):
                     try:
                         handler = OAuthHandler(s["name"], s["url"], s.get("oauth"))
-                        token = handler.authorize()
+                        token = handler.authorize(
+                            on_auth_url=lambda url: link_box.markdown(
+                                f"🔐 [Click here to sign in]({url})"))
                         if token:
                             st.success("Authenticated.")
                         else:

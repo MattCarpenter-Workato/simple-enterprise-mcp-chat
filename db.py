@@ -22,8 +22,11 @@ import threading
 from datetime import datetime
 from typing import Any, Optional
 
-# Database file lives next to this module (repo root)
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_chat.db")
+# Database file lives in the data directory. Defaults to this module's directory
+# (repo root) so a local `uv run` is unchanged; set MCP_CHAT_DATA_DIR to relocate
+# all persistent state (used by Docker to point at a mounted volume).
+DATA_DIR = os.environ.get("MCP_CHAT_DATA_DIR") or os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(DATA_DIR, "mcp_chat.db")
 
 # One connection PER THREAD. Streamlit runs each rerun/session on its own
 # ScriptRunner thread; sharing a single sqlite connection across them can block
@@ -41,6 +44,7 @@ def get_conn() -> sqlite3.Connection:
     """Return this thread's connection, initializing schema on first use."""
     conn = getattr(_local, "conn", None)
     if conn is None:
+        os.makedirs(DATA_DIR, exist_ok=True)  # ensure a relocated/volume data dir exists
         conn = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")

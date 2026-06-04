@@ -15,7 +15,10 @@ import logging
 import os
 from logging.handlers import RotatingFileHandler
 
-LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+# Logs live under the data directory (set MCP_CHAT_DATA_DIR to relocate, e.g. a
+# Docker volume); defaults to this module's directory so a local run is unchanged.
+_DATA_DIR = os.environ.get("MCP_CHAT_DATA_DIR") or os.path.dirname(os.path.abspath(__file__))
+LOG_DIR = os.path.join(_DATA_DIR, "logs")
 APP_LOG_PATH = os.path.join(LOG_DIR, "app.log")
 
 _configured = False
