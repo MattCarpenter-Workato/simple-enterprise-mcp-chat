@@ -87,6 +87,31 @@ if st.button("🔄 Refresh models"):
     available_models.clear()
     st.success("Model lists refreshed.")
 
+# --- model pricing -----------------------------------------------------------
+st.divider()
+st.subheader("Model pricing")
+st.caption("Estimated cost rates in **USD per 1,000,000 tokens**, used for the chat "
+           "and benchmark cost metrics. Claude & OpenAI only (local models are free). "
+           "A model matches by exact ID, then by the longest family-prefix — so a stem "
+           "like `claude-sonnet-4` also prices dated snapshots like "
+           "`claude-sonnet-4-5-20250929`. Add a row for an exact model to override.")
+price_edit = st.data_editor(
+    db.list_model_prices(),
+    num_rows="dynamic",
+    width="stretch",
+    key="model_prices_editor",
+    column_config={
+        "provider": st.column_config.TextColumn("Provider", help="Claude or OpenAI"),
+        "model": st.column_config.TextColumn("Model (exact ID or family stem)"),
+        "input_per_mtok": st.column_config.NumberColumn("Input $/1M", format="%.4f", min_value=0.0),
+        "output_per_mtok": st.column_config.NumberColumn("Output $/1M", format="%.4f", min_value=0.0),
+    },
+)
+if st.button("💾 Save pricing"):
+    db.replace_model_prices(price_edit)
+    st.toast("Model pricing saved.", icon="✅")
+    st.rerun()
+
 # --- danger zone -------------------------------------------------------------
 st.divider()
 st.subheader("Maintenance")

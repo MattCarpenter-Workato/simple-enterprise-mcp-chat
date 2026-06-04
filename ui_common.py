@@ -5,6 +5,7 @@ Keeps one-time setup (DB seeding) and message-rendering logic in one place so th
 Chat page and the sub-pages stay small.
 """
 
+import json
 from datetime import datetime
 from typing import Any, Optional
 
@@ -125,6 +126,72 @@ def display_text(message: dict[str, Any]) -> Optional[tuple[str, str]]:
         return (role, text) if text else None
 
     return None
+
+
+def fmt_cost(value: Optional[float]) -> str:
+    """Format an estimated USD cost. `None` (unpriced / local model) shows as '—'.
+    Small amounts keep enough precision to be meaningful (e.g. '$0.0123')."""
+    if value is None:
+        return "—"
+    if value == 0:
+        return "$0.00"
+    if value < 0.01:
+        return f"${value:.4f}"
+    if value < 1:
+        return f"${value:.3f}"
+    return f"${value:,.2f}"
+
+
+def _log_preview(r: dict[str, Any]) -> str:
+    """Best-effort preview text for a chat_logs row: the stored response preview,
+    else the tool result preview tucked inside detail_json."""
+    if r.get("response_preview"):
+        return r["response_preview"]
+    if r.get("detail_json"):
+        try:
+            return json.loads(r["detail_json"]).get("result_preview", "")
+        except (json.JSONDecodeError, TypeError):
+            return ""
+    return ""
+
+
+def _log_arguments(r: dict[str, Any]) -> str:
+    """The tool-call arguments stored in detail_json, rendered as compact JSON."""
+    if r.get("detail_json"):
+        try:
+            args = json.loads(r["detail_json"]).get("arguments")
+            return json.dumps(args) if args is not None else ""
+        except (json.JSONDecodeError, TypeError):
+            return ""
+    return ""
+
+
+def log_table_rows(logs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Map raw chat_logs rows to the standardized per-call table columns shared by
+    the Chat, Logs, and Benchmark pages — one source of truth so every per-call
+    table shows the same metrics."""
+    return [
+        {
+            "Time": (r["created_at"] or "")[11:],
+            "Event": r["event_type"],
+            "Provider": r["provider"],
+            "Model": r["model"],
+            "Call type": r["call_type"],
+            "Prompt tokens": r["prompt_tokens"],
+            "Completion tokens": r["completion_tokens"],
+            "Total tokens": r["total_tokens"],
+            "Duration (ms)": r["duration_ms"],
+            "Result size (chars)": r["data_chars"],
+            "Success": r["success"],
+            "Error": r["error"],
+            "Attempt": r["attempt"],
+            "Server": r["server"],
+            "Tools": r["tools"],
+            "Arguments": _log_arguments(r),
+            "Preview": _log_preview(r),
+        }
+        for r in logs
+    ]
 
 
 def render_history(messages: list[dict[str, Any]]) -> None:

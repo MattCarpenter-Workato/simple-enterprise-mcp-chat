@@ -16,7 +16,7 @@ import providers
 from chat_runner import server_of
 from ui_common import (init_app, render_nav, effective_system_prompt,
                        display_text, get_client_and_tools, server_signature,
-                       available_models, model_fingerprint)
+                       available_models, model_fingerprint, log_table_rows, fmt_cost)
 
 st.set_page_config(page_title="Benchmark", page_icon="⚗️", layout="wide")
 init_app()
@@ -239,6 +239,8 @@ st.dataframe(
             "Tool calls": r["tool_calls"],
             "Tool errors": r["tool_errors"],
             "Retries": r["retries"],
+            "Est. cost ($)": fmt_cost(db.estimate_cost(
+                r["provider"], r["model"], r["prompt_tokens"], r["completion_tokens"])),
             "Answer": r["answer"],
         }
         for r in rows
@@ -246,11 +248,11 @@ st.dataframe(
     width="stretch", hide_index=True,
 )
 
-# Charts: total tokens and total turn time per variant.
+# Charts: total tokens, total turn time, and estimated cost per variant.
 ok_rows = [r for r in rows if r["status"] == "ok"]
 if ok_rows:
     unit = "server" if run_mode == "servers" else "model"
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     with c1:
         st.caption(f"Total tokens per {unit}")
         st.bar_chart({_row_key(r): r["total_tokens"] for r in ok_rows})
@@ -258,6 +260,11 @@ if ok_rows:
         st.caption(f"Total turn time per {unit} (s)")
         st.bar_chart({_row_key(r): round((r["total_ms"] or 0) / 1000, 2)
                       for r in ok_rows})
+    with c3:
+        st.caption(f"Est. cost per {unit} ($)")
+        st.bar_chart({_row_key(r): (db.estimate_cost(
+            r["provider"], r["model"], r["prompt_tokens"], r["completion_tokens"]) or 0)
+            for r in ok_rows})
 
 # Full final answers for quality eyeballing.
 st.markdown("**Final answers**")
@@ -274,3 +281,20 @@ for r in rows:
                     answer = shown[1]
                     break
             st.markdown(answer or "_(no text answer)_")
+
+# Per-call detail for the whole run — same metrics as the Logs page, with a
+# leading Variant column so each row is attributable to a model/server.
+st.markdown("**Per-call detail for this run**")
+with st.expander("🔍 Show every LLM & tool call in this run"):
+    run_logs = db.benchmark_run_logs(run["id"])
+    if run_logs:
+        variant_label = {r["conversation_id"]: _row_key(r) for r in rows}
+        st.dataframe(
+            [
+                {"Variant": variant_label.get(lg["conversation_id"], ""), **base}
+                for lg, base in zip(run_logs, log_table_rows(run_logs))
+            ],
+            width="stretch", hide_index=True,
+        )
+    else:
+        st.caption("No per-call logs recorded for this run.")
