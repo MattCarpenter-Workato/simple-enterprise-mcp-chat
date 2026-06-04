@@ -17,7 +17,6 @@ import streamlit as st
 import chat_runner
 import db
 import providers
-from oauth_store import OAuthHandler
 from ui_common import (init_app, render_nav, render_history, effective_system_prompt,
                        get_client_and_tools, server_signature,
                        available_models, model_fingerprint)
@@ -61,21 +60,6 @@ st.session_state.setdefault("system_prompt_id", None)
 with st.sidebar:
     st.header("💬 MCP Chat")
 
-    # Reconnect = authenticate any OAuth server that lacks a valid token (opens a
-    # browser when needed), then re-discover tools for all enabled servers.
-    if st.button("🔄 Reconnect MCP servers", width='stretch', key="resync_sidebar"):
-        with st.spinner("Reconnecting… a browser may open to authenticate."):
-            for s in db.list_servers(enabled_only=True):
-                if s["auth_type"] == "oauth":
-                    handler = OAuthHandler(s["name"], s["url"], s.get("oauth"))
-                    if not handler.token_noninteractive():
-                        try:
-                            handler.authorize()  # interactive browser flow
-                        except Exception as e:  # noqa: BLE001
-                            st.warning(f"{s['name']}: authentication failed: {e}")
-        get_client_and_tools.clear()
-        st.rerun()
-
     # Provider + model. Once a conversation has started it is locked to the
     # provider/model it began with — switching mid-chat would send one provider's
     # message format to another's API. Use ➕ New chat to pick a different model.
@@ -99,9 +83,6 @@ with st.sidebar:
         "Model", model_opts, index=model_opts.index(st.session_state.model),
         disabled=locked,
     )
-    if st.button("🔄 Refresh models", width='stretch', key="refresh_models"):
-        available_models.clear()
-        st.rerun()
 
     if locked:
         st.caption(f"🔒 Locked to **{st.session_state.provider}** for this chat — "
@@ -159,8 +140,8 @@ if disc_errors:
     st.warning(
         "Some servers had issues: "
         + "; ".join(f"{k}: {v}" for k, v in disc_errors.items())
-        + "  —  click **🔄 Reconnect MCP servers** (sidebar); it will prompt for "
-        "login if a token is missing or expired."
+        + "  —  use **🔄 Reconnect MCP servers** on the **🔌 MCP Servers** page; it "
+        "will prompt for login if a token is missing or expired."
     )
 
 # Per-chat logs & token/latency usage.

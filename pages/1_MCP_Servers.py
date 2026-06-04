@@ -5,7 +5,7 @@ import json
 import streamlit as st
 
 import db
-from ui_common import init_app, render_nav
+from ui_common import init_app, render_nav, get_client_and_tools
 from oauth_store import OAuthHandler
 
 st.set_page_config(page_title="MCP Servers", page_icon="🔌", layout="wide")
@@ -14,6 +14,21 @@ render_nav()
 
 st.title("🔌 MCP Servers")
 st.caption("Configure the MCP servers the chat connects to. Stored in SQLite.")
+
+# Reconnect = authenticate any OAuth server that lacks a valid token (opens a
+# browser when needed), then re-discover tools for all enabled servers.
+if st.button("🔄 Reconnect MCP servers", key="resync_servers"):
+    with st.spinner("Reconnecting… a browser may open to authenticate."):
+        for s in db.list_servers(enabled_only=True):
+            if s["auth_type"] == "oauth":
+                handler = OAuthHandler(s["name"], s["url"], s.get("oauth"))
+                if not handler.token_noninteractive():
+                    try:
+                        handler.authorize()  # interactive browser flow
+                    except Exception as e:  # noqa: BLE001
+                        st.warning(f"{s['name']}: authentication failed: {e}")
+    get_client_and_tools.clear()
+    st.rerun()
 
 # --- existing servers --------------------------------------------------------
 servers = db.list_servers()

@@ -133,14 +133,17 @@ def _init_schema(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_chat_logs_conv ON chat_logs(conversation_id);
 
-        -- Benchmarking: one run = the same prompt fanned out across model variants.
+        -- Benchmarking: one run = the same prompt fanned out across variants.
+        -- mode='models': variants differ by (provider, model), shared servers.
+        -- mode='servers': fixed model, one variant per MCP server.
         CREATE TABLE IF NOT EXISTS benchmark_runs (
             id               INTEGER PRIMARY KEY AUTOINCREMENT,
             created_at       TEXT NOT NULL,
             prompt           TEXT NOT NULL,
             system_prompt_id INTEGER,
             label            TEXT,
-            notes            TEXT
+            notes            TEXT,
+            mode             TEXT DEFAULT 'models'   -- 'models' | 'servers'
         );
 
         CREATE TABLE IF NOT EXISTS benchmark_variants (
@@ -152,6 +155,7 @@ def _init_schema(conn: sqlite3.Connection) -> None:
             total_ms        INTEGER,
             status          TEXT,              -- 'ok' | 'error'
             error           TEXT,
+            servers         TEXT,              -- comma-joined server names exposed to this variant
             FOREIGN KEY (run_id) REFERENCES benchmark_runs(id)
         );
 
@@ -559,12 +563,13 @@ def usage_by_server_tool() -> list[dict[str, Any]]:
 # =============================================================================
 
 def create_benchmark_run(prompt: str, system_prompt_id: Optional[int] = None,
-                         label: Optional[str] = None, notes: Optional[str] = None) -> int:
+                         label: Optional[str] = None, notes: Optional[str] = None,
+                         mode: str = "models") -> int:
     conn = get_conn()
     cur = conn.execute(
-        "INSERT INTO benchmark_runs (created_at, prompt, system_prompt_id, label, notes) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (_now(), prompt, system_prompt_id, label, notes),
+        "INSERT INTO benchmark_runs (created_at, prompt, system_prompt_id, label, notes, mode) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (_now(), prompt, system_prompt_id, label, notes, mode),
     )
     conn.commit()
     return cur.lastrowid
@@ -572,13 +577,14 @@ def create_benchmark_run(prompt: str, system_prompt_id: Optional[int] = None,
 
 def add_benchmark_variant(run_id: int, provider: str, model: str,
                           conversation_id: Optional[int], total_ms: Optional[int],
-                          status: str, error: Optional[str] = None) -> int:
+                          status: str, error: Optional[str] = None,
+                          servers: Optional[str] = None) -> int:
     conn = get_conn()
     cur = conn.execute(
         "INSERT INTO benchmark_variants "
-        "(run_id, provider, model, conversation_id, total_ms, status, error) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (run_id, provider, model, conversation_id, total_ms, status, error),
+        "(run_id, provider, model, conversation_id, total_ms, status, error, servers) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (run_id, provider, model, conversation_id, total_ms, status, error, servers),
     )
     conn.commit()
     return cur.lastrowid

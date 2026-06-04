@@ -3,7 +3,7 @@
 import streamlit as st
 
 import db
-from ui_common import init_app, render_nav
+from ui_common import init_app, render_nav, available_models
 
 st.set_page_config(page_title="Settings", page_icon="⚙️", layout="wide")
 init_app()
@@ -77,6 +77,15 @@ with st.form("settings"):
         db.set_secret("DEBUG_TOOL_IO", "true" if debug_io else "false")
         st.success("Settings saved.")
         st.rerun()
+
+# --- models ------------------------------------------------------------------
+st.divider()
+st.subheader("Models")
+st.caption("Live model lists (Claude/OpenAI) are cached. Refresh to re-fetch from "
+           "the provider API — e.g. after adding a key or when a new model ships.")
+if st.button("🔄 Refresh models"):
+    available_models.clear()
+    st.success("Model lists refreshed.")
 
 # --- danger zone -------------------------------------------------------------
 st.divider()
