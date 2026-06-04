@@ -19,7 +19,7 @@ import db
 import providers
 from ui_common import (init_app, render_nav, render_history, effective_system_prompt,
                        get_client_and_tools, server_signature,
-                       available_models, model_fingerprint, log_table_rows, fmt_cost)
+                       selectable_models, log_table_rows, fmt_cost)
 
 st.set_page_config(page_title="MCP Chat", page_icon="💬", layout="wide")
 init_app()
@@ -74,15 +74,22 @@ with st.sidebar:
         st.session_state.provider = provider_name
         st.session_state.model = providers.default_model(provider_name)
 
-    model_opts = available_models(provider_name, model_fingerprint(provider_name))
-    # Guarantee the active model is selectable so a locked chat never falls back
-    # to opts[0].
+    # Only models that have a price are offered (Claude/OpenAI); unpriced ones are
+    # parked in Settings → Model pricing. Local providers show everything.
+    model_opts = selectable_models(provider_name)
     if st.session_state.model not in model_opts:
-        model_opts = [st.session_state.model] + model_opts
+        # Keep the active model usable for locked chats / when nothing is priced;
+        # otherwise land on the first priced model.
+        if locked or not model_opts:
+            model_opts = [st.session_state.model] + model_opts
+        else:
+            st.session_state.model = model_opts[0]
     st.session_state.model = st.selectbox(
         "Model", model_opts, index=model_opts.index(st.session_state.model),
         disabled=locked,
     )
+    if (providers.PROVIDERS.get(provider_name) or {}).get("live"):
+        st.caption("Only priced models shown — add prices in ⚙️ Settings → Model pricing.")
 
     if locked:
         st.caption(f"🔒 Locked to **{st.session_state.provider}** for this chat — "

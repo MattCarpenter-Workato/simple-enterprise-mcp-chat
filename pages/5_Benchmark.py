@@ -17,8 +17,7 @@ import providers
 from chat_runner import server_of
 from ui_common import (init_app, render_nav, effective_system_prompt,
                        display_text, get_client_and_tools, server_signature,
-                       available_models, model_fingerprint, log_table_rows, fmt_cost,
-                       copy_button)
+                       selectable_models, log_table_rows, fmt_cost, copy_button)
 
 st.set_page_config(page_title="Benchmark", page_icon="⚗️", layout="wide")
 init_app()
@@ -139,14 +138,18 @@ if disc_errors:
                + "; ".join(f"{k}: {v}" for k, v in disc_errors.items())
                + "  —  fix on the **🔌 MCP Servers** page.")
 
-# All selectable variants: every model under every provider (live list for
-# Claude/OpenAI, static otherwise).
+# All selectable variants: every model under every provider. For Claude/OpenAI only
+# priced models are offered (unpriced ones are parked in Settings → Model pricing);
+# local providers show everything.
 VARIANTS: list[tuple[str, str]] = [
     (p, m) for p in providers.PROVIDER_NAMES
-    for m in available_models(p, model_fingerprint(p))
+    for m in selectable_models(p)
 ]
 def _variant_label(v: tuple[str, str]) -> str:
     return f"{v[0]} · {v[1]}"
+
+st.caption("Claude/OpenAI models without a price are hidden — add prices in "
+           "⚙️ Settings → Model pricing.")
 
 # =============================================================================
 # SETUP

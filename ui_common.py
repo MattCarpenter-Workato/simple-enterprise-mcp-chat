@@ -61,6 +61,24 @@ def available_models(name: str, fingerprint: str) -> list[str]:
     return live
 
 
+def selectable_models(provider: str) -> list[str]:
+    """Models to offer in a picker for `provider`. Local providers (no cost concept)
+    show everything. Paid/live providers (Claude, OpenAI) show only models that have
+    a price; any model with no price at all is parked in the pricing table (so it
+    appears in Settings → Model pricing) and hidden until the user gives it a cost.
+    Not cached: it writes placeholder rows and must reflect pricing edits live."""
+    models = available_models(provider, model_fingerprint(provider))
+    if not (providers.PROVIDERS.get(provider) or {}).get("live"):
+        return list(models)
+    out = []
+    for m in models:
+        if db.is_priced(provider, m):
+            out.append(m)
+        else:
+            db.ensure_model_listed(provider, m)
+    return out
+
+
 def server_signature() -> str:
     """Cache key for discovery. Includes a per-server token fingerprint so that
     (re)authenticating or refreshing a token busts the cache and re-discovers —

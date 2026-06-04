@@ -187,9 +187,11 @@ def _init_schema(conn: sqlite3.Connection) -> None:
 _DEFAULT_MODEL_PRICES = [
     ("Claude", "claude-opus-4",     15.0, 75.0),
     ("Claude", "claude-sonnet-4",    3.0, 15.0),
+    ("Claude", "claude-haiku-4",     1.0, 5.0),
     ("Claude", "claude-3-7-sonnet",  3.0, 15.0),
     ("Claude", "claude-3-5-sonnet",  3.0, 15.0),
     ("Claude", "claude-3-5-haiku",   0.80, 4.0),
+    ("Claude", "claude-3-opus",     15.0, 75.0),
     ("Claude", "claude-3-haiku",     0.25, 1.25),
     ("OpenAI", "gpt-4o-mini",        0.15, 0.60),
     ("OpenAI", "gpt-4o",             2.50, 10.0),
@@ -203,14 +205,14 @@ _DEFAULT_MODEL_PRICES = [
 
 
 def _seed_model_prices(conn: sqlite3.Connection) -> None:
-    """Seed default model prices once (only when the table is empty), so existing
-    DBs and fresh ones both get sensible starting values without clobbering edits."""
-    if conn.execute("SELECT COUNT(*) FROM model_prices").fetchone()[0] == 0:
-        conn.executemany(
-            "INSERT INTO model_prices (provider, model, input_per_mtok, output_per_mtok) "
-            "VALUES (?, ?, ?, ?)",
-            _DEFAULT_MODEL_PRICES,
-        )
+    """Top up default model prices. Uses INSERT OR IGNORE so missing family stems
+    (e.g. newly added model families) appear in both fresh and existing DBs without
+    ever clobbering a user's edited prices (a PK conflict is ignored)."""
+    conn.executemany(
+        "INSERT OR IGNORE INTO model_prices (provider, model, input_per_mtok, output_per_mtok) "
+        "VALUES (?, ?, ?, ?)",
+        _DEFAULT_MODEL_PRICES,
+    )
 
 
 def _migrate_chat_logs(conn: sqlite3.Connection) -> None:
@@ -669,11 +671,14 @@ def replace_model_prices(rows: list[dict[str, Any]]) -> None:
 def model_price_for(provider: str, model: str) -> Optional[dict[str, Any]]:
     """Price for a (provider, model): exact match first, else the row whose model
     is the longest prefix of `model` (so dated snapshots inherit a family price).
-    Returns None when nothing matches."""
+    Only considers rows that actually have both rates set — blank placeholder rows
+    (parked, unpriced models) are ignored so they never shadow a real family price.
+    Returns None when nothing priced matches."""
     if not provider or not model:
         return None
     rows = get_conn().execute(
-        "SELECT model, input_per_mtok, output_per_mtok FROM model_prices WHERE provider = ?",
+        "SELECT model, input_per_mtok, output_per_mtok FROM model_prices "
+        "WHERE provider = ? AND input_per_mtok IS NOT NULL AND output_per_mtok IS NOT NULL",
         (provider,),
     ).fetchall()
     best = None
@@ -689,13 +694,36 @@ def model_price_for(provider: str, model: str) -> Optional[dict[str, Any]]:
 def estimate_cost(provider: str, model: str,
                   prompt_tokens: Optional[int],
                   completion_tokens: Optional[int]) -> Optional[float]:
-    """Estimated USD cost for one model's usage, or None if the model is unpriced."""
+    """Estimated USD cost for one model's usage, or None if the model is unpriced
+    (no matching row, or a placeholder row with both rates blank)."""
     price = model_price_for(provider, model)
     if not price:
         return None
-    inp = price.get("input_per_mtok") or 0
-    out = price.get("output_per_mtok") or 0
-    return (prompt_tokens or 0) / 1e6 * inp + (completion_tokens or 0) / 1e6 * out
+    inp, out = price.get("input_per_mtok"), price.get("output_per_mtok")
+    if inp is None and out is None:
+        return None
+    return (prompt_tokens or 0) / 1e6 * (inp or 0) + (completion_tokens or 0) / 1e6 * (out or 0)
+
+
+def is_priced(provider: str, model: str) -> bool:
+    """True when a model resolves to a usable price (exact or family-prefix). Blank
+    placeholder rows are ignored by model_price_for, so they count as unpriced."""
+    return model_price_for(provider, model) is not None
+
+
+def ensure_model_listed(provider: str, model: str) -> None:
+    """Park an unpriced model in the table so it shows in the Settings editor (as a
+    blank row to fill in). Skips models already covered by a price. INSERT OR IGNORE
+    avoids duplicates; a parked blank row never shadows a family price (see
+    model_price_for), so if a covering family is added later the model un-hides."""
+    if not provider or not model or is_priced(provider, model):
+        return
+    get_conn().execute(
+        "INSERT OR IGNORE INTO model_prices "
+        "(provider, model, input_per_mtok, output_per_mtok) VALUES (?, ?, NULL, NULL)",
+        (provider, model),
+    )
+    get_conn().commit()
 
 
 def conversation_cost(conversation_id: int) -> Optional[float]:
