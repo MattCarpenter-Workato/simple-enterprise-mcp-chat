@@ -13,6 +13,7 @@ token, running the browser flow only when needed.
 
 import base64
 import hashlib
+import logging
 import secrets
 import time
 import webbrowser
@@ -24,6 +25,8 @@ from urllib.parse import urlparse, parse_qs, urlencode
 import requests
 
 import db
+
+logger = logging.getLogger("mcpchat.oauth")
 
 
 class OAuthCallbackHandler(BaseHTTPRequestHandler):
@@ -188,6 +191,7 @@ class OAuthHandler:
                     token_data['client_secret'] = self.client_secret
                 self.store_token(token_data)
         except Exception as e:
+            logger.exception("OAuth client registration failed for %s", self.server_name)
             print(f"  Client registration failed: {e}")
 
     def _discover_auth_url(self) -> str:
@@ -223,6 +227,7 @@ class OAuthHandler:
             self.store_token(token_data)
             return token_data
         except requests.RequestException as e:
+            logger.error("Failed to refresh token for %s: %s", self.server_name, e)
             print(f"Failed to refresh token: {e}")
             return None
 
@@ -307,12 +312,15 @@ class OAuthHandler:
         while OAuthCallbackHandler.auth_code is None and OAuthCallbackHandler.auth_error is None:
             server.handle_request()
             if time.time() - start_time > timeout:
+                logger.error("OAuth authentication timed out for %s", self.server_name)
                 print("\nAuthentication timeout. Please try again.")
                 server.server_close()
                 return None
         server.server_close()
 
         if OAuthCallbackHandler.auth_error:
+            logger.error("OAuth authentication failed for %s: %s",
+                         self.server_name, OAuthCallbackHandler.auth_error)
             print(f"\nAuthentication failed: {OAuthCallbackHandler.auth_error}")
             return None
 
@@ -338,6 +346,9 @@ class OAuthHandler:
             print(f"[OK] Successfully authenticated with {self.server_name}")
             return token_response.get('access_token')
         except requests.RequestException as e:
+            body = e.response.text if e.response is not None else ""
+            logger.error("Failed to exchange authorization code for %s: %s | response=%s",
+                         self.server_name, e, body)
             print(f"\nFailed to exchange authorization code: {e}")
             if e.response is not None and e.response.text:
                 print(f"Response: {e.response.text}")

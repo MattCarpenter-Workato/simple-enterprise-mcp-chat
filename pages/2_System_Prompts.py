@@ -4,10 +4,14 @@ Prompts are authored in Markdown with a live rendered preview. The content is
 stored and sent to the model as raw text (Markdown flows through unchanged).
 """
 
+import logging
+
 import streamlit as st
 
 import db
 from ui_common import init_app, render_nav
+
+logger = logging.getLogger("mcpchat.system_prompts")
 
 st.set_page_config(page_title="System Prompts", page_icon="📝", layout="wide")
 init_app()
@@ -35,9 +39,10 @@ for p in db.list_prompts():
         if save:
             if name and content:
                 db.save_prompt(name, content, prompt_id=p["id"])
-                st.success("Saved.")
+                st.toast("Saved.", icon="✅")
                 st.rerun()
             else:
+                logger.warning("Save prompt rejected (id=%s): name and content required", p["id"])
                 st.error("Name and prompt are required.")
         if delete:
             db.delete_prompt(p["id"])
@@ -61,6 +66,7 @@ with prev_col:
 
 if save_new:
     if not new_name or not new_content:
+        logger.warning("Create prompt rejected: name and content required")
         st.error("Name and prompt are required.")
     else:
         try:
@@ -68,7 +74,8 @@ if save_new:
             # Reset the input fields on success so it's ready for the next prompt.
             for k in ("new_prompt_name", "new_prompt_content"):
                 st.session_state.pop(k, None)
-            st.success(f"Saved '{new_name}'.")
+            st.toast(f"Saved '{new_name}'.", icon="✅")
             st.rerun()
         except Exception as e:  # noqa: BLE001 (likely a duplicate name)
+            logger.exception("Could not save prompt '%s'", new_name)
             st.error(f"Could not save: {e}")

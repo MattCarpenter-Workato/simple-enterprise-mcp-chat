@@ -1,12 +1,15 @@
 """MCP Servers page — add, edit, enable/disable, delete, and (re)authenticate."""
 
 import json
+import logging
 
 import streamlit as st
 
 import db
 from ui_common import init_app, render_nav, get_client_and_tools
 from oauth_store import OAuthHandler
+
+logger = logging.getLogger("mcpchat.mcp_servers")
 
 st.set_page_config(page_title="MCP Servers", page_icon="🔌", layout="wide")
 init_app()
@@ -30,7 +33,8 @@ if st.button("🔄 Reconnect MCP servers", key="resync_servers"):
                         handler.authorize(on_auth_url=lambda url, n=s["name"]: link_box.markdown(
                             f"🔐 **{n}** needs sign-in — [click here to authenticate]({url})"))
                     except Exception as e:  # noqa: BLE001
-                        st.warning(f"{s['name']}: authentication failed: {e}")
+                        logger.exception("Reconnect: OAuth failed for %s", s["name"])
+                        st.toast(f"{s['name']}: authentication failed: {e}", icon="⚠️")
     get_client_and_tools.clear()
     st.rerun()
 
@@ -73,11 +77,12 @@ for s in servers:
                     try:
                         oauth = json.loads(oauth_json)
                     except json.JSONDecodeError as e:
+                        logger.warning("Invalid OAuth JSON for server %s: %s", s["name"], e)
                         st.error(f"Invalid OAuth JSON: {e}")
                         st.stop()
                 db.update_server(s["id"], url=url, auth_type=auth_type,
                                  enabled=enabled, oauth=oauth)
-                st.success("Saved.")
+                st.toast("Saved.", icon="✅")
                 st.rerun()
             if c2.form_submit_button("🗑 Delete", width='stretch'):
                 db.remove_server(s["id"])
@@ -100,11 +105,13 @@ for s in servers:
                             on_auth_url=lambda url: link_box.markdown(
                                 f"🔐 [Click here to sign in]({url})"))
                         if token:
-                            st.success("Authenticated.")
+                            st.toast("Authenticated.", icon="✅")
                         else:
-                            st.error("Authentication failed or timed out.")
+                            logger.error("Re-authenticate failed or timed out for %s", s["name"])
+                            st.toast("Authentication failed or timed out.", icon="❌")
                     except Exception as e:  # noqa: BLE001
-                        st.error(f"OAuth error: {e}")
+                        logger.exception("Re-authenticate error for %s", s["name"])
+                        st.toast(f"OAuth error: {e}", icon="❌")
                 st.rerun()
 
 # --- add new server ----------------------------------------------------------
@@ -117,10 +124,11 @@ with st.form("add_server", clear_on_submit=True):
     new_token = st.text_input("Bearer token (if token auth)", type="password")
     if st.form_submit_button("➕ Add server"):
         if not name or not new_url:
+            logger.warning("Add server rejected: name and URL are required")
             st.error("Name and URL are required.")
         else:
             oauth = {"token": new_token} if (new_auth == "token" and new_token) else None
             db.add_server(name=name, url=new_url, auth_type=new_auth,
                           enabled=True, oauth=oauth)
-            st.success(f"Added {name}.")
+            st.toast(f"Added {name}.", icon="✅")
             st.rerun()

@@ -30,7 +30,7 @@ with col_logs.popover("🗑 Clear all logs"):
     if st.button("Delete all logs", type="primary", disabled=not confirm):
         removed = db.clear_all_logs()
         clear_log()
-        st.success(f"Cleared {removed} conversation log row(s) and the app log.")
+        st.toast(f"Cleared {removed} conversation log row(s) and the app log.", icon="✅")
         st.rerun()
 
 with col_convs.popover("🗑 Delete all conversations"):
@@ -43,7 +43,7 @@ with col_convs.popover("🗑 Delete all conversations"):
         # deleted row (session state is shared across pages).
         st.session_state["conversation_id"] = None
         st.session_state["messages"] = []
-        st.success(f"Deleted {removed} conversation(s).")
+        st.toast(f"Deleted {removed} conversation(s).", icon="✅")
         st.rerun()
 
 # =============================================================================
@@ -238,6 +238,7 @@ n_lines = c1.number_input("Lines to show", min_value=20, max_value=2000,
                           value=200, step=20)
 if c2.button("🗑 Clear app log"):
     clear_log()
+    st.toast("App log cleared.", icon="✅")
     st.rerun()
 tail = read_tail(int(n_lines))
 st.code(tail or "(app log is empty)", language="log")

@@ -178,6 +178,7 @@ class MCPClient:
                 return content[0].get("text", str(result))
             return str(result.get("result", result))
         except Exception as e:  # noqa: BLE001
+            logger.exception("Tool call failed: %s", name)
             return f"Error calling tool: {e}"
 
     # Header/body keys (normalized to alphanumerics) that look like a correlation

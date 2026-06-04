@@ -151,6 +151,7 @@ if run_clicked:
             provider = providers.get_provider(prov_name)
         except ValueError as e:
             # Missing key / unconfigured provider — record and keep going.
+            logger.warning("Benchmark variant skipped (%s · %s): %s", prov_name, model, e)
             db.add_benchmark_variant(run_id, prov_name, model, None, None, "error",
                                      str(e), servers=servers_str)
             continue

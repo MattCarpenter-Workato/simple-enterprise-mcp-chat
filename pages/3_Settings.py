@@ -75,7 +75,7 @@ with st.form("settings"):
             db.set_secret(key, value)
         db.set_secret("INJECT_CURRENT_DATE", "true" if inject else "false")
         db.set_secret("DEBUG_TOOL_IO", "true" if debug_io else "false")
-        st.success("Settings saved.")
+        st.toast("Settings saved.", icon="✅")
         st.rerun()
 
 # --- models ------------------------------------------------------------------
@@ -96,7 +96,7 @@ with st.expander("Clear a stored secret"):
     target = st.selectbox("Secret to clear", keys)
     if st.button("Clear secret"):
         db.set_secret(target, None)
-        st.success(f"Cleared {target}.")
+        st.toast(f"Cleared {target}.", icon="✅")
         st.rerun()
 
 with st.popover("🔑 Clear all auth tokens (force re-sync)"):
@@ -107,8 +107,8 @@ with st.popover("🔑 Clear all auth tokens (force re-sync)"):
         if st.button("Clear auth tokens", type="primary"):
             removed = db.clear_all_oauth_tokens()
             st.cache_resource.clear()  # bust the discovery cache so tools re-sync
-            st.success(f"Cleared {removed} token(s). Re-authenticate each OAuth "
-                       "server on the MCP Servers page.")
+            st.toast(f"Cleared {removed} token(s). Re-authenticate each OAuth "
+                     "server on the MCP Servers page.", icon="✅")
             st.rerun()
 
 with st.popover("🗑 Clear all benchmark runs"):
@@ -120,5 +120,5 @@ with st.popover("🗑 Clear all benchmark runs"):
             removed = db.clear_all_benchmark_runs()
             # The benchmark page may point at a now-deleted run.
             st.session_state.pop("benchmark_run_id", None)
-            st.success(f"Cleared {removed} benchmark run(s).")
+            st.toast(f"Cleared {removed} benchmark run(s).", icon="✅")
             st.rerun()
