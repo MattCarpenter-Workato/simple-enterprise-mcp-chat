@@ -10,7 +10,7 @@ import os
 import streamlit as st
 
 import db
-from ui_common import init_app, render_nav
+from ui_common import init_app, render_nav, log_table_rows
 from logging_setup import APP_LOG_PATH, read_tail, clear_log
 
 st.set_page_config(page_title="Logs", page_icon="📊", layout="wide")
@@ -131,31 +131,7 @@ else:
 
     logs = db.get_logs(conv["id"])
     if logs:
-        st.dataframe(
-            [
-                {
-                    "Time": r["created_at"][11:],
-                    "Event": r["event_type"],
-                    "Provider": r["provider"],
-                    "Model": r["model"],
-                    "Call type": r["call_type"],
-                    "Prompt tokens": r["prompt_tokens"],
-                    "Completion tokens": r["completion_tokens"],
-                    "Total tokens": r["total_tokens"],
-                    "Duration (ms)": r["duration_ms"],
-                    "Result size (chars)": r["data_chars"],
-                    "Success": r["success"],
-                    "Attempt": r["attempt"],
-                    "Server": r["server"],
-                    "Tools": r["tools"],
-                    "Preview": (r["response_preview"] or
-                                (json.loads(r["detail_json"]).get("result_preview")
-                                 if r["detail_json"] else "")),
-                }
-                for r in logs
-            ],
-            width='stretch', hide_index=True,
-        )
+        st.dataframe(log_table_rows(logs), width='stretch', hide_index=True)
     else:
         st.caption("No log entries for this conversation.")
 

@@ -164,10 +164,55 @@ def _init_schema(conn: sqlite3.Connection) -> None:
         );
 
         CREATE INDEX IF NOT EXISTS idx_bench_variants_run ON benchmark_variants(run_id);
+
+        -- Per-model pricing for cost estimates (Claude & OpenAI). Rates are USD
+        -- per 1,000,000 tokens. `model` may be an exact id or a family stem
+        -- (e.g. 'claude-sonnet-4'); lookup matches exact first, then longest prefix.
+        CREATE TABLE IF NOT EXISTS model_prices (
+            provider        TEXT NOT NULL,
+            model           TEXT NOT NULL,
+            input_per_mtok  REAL,
+            output_per_mtok REAL,
+            PRIMARY KEY (provider, model)
+        );
         """
     )
     _migrate_chat_logs(conn)
+    _seed_model_prices(conn)
     conn.commit()
+
+
+# Starting price estimates (USD per 1M tokens), keyed by family stem so dated
+# snapshots match via the longest-prefix fallback. Users can edit these in Settings.
+_DEFAULT_MODEL_PRICES = [
+    ("Claude", "claude-opus-4",     15.0, 75.0),
+    ("Claude", "claude-sonnet-4",    3.0, 15.0),
+    ("Claude", "claude-haiku-4",     1.0, 5.0),
+    ("Claude", "claude-3-7-sonnet",  3.0, 15.0),
+    ("Claude", "claude-3-5-sonnet",  3.0, 15.0),
+    ("Claude", "claude-3-5-haiku",   0.80, 4.0),
+    ("Claude", "claude-3-opus",     15.0, 75.0),
+    ("Claude", "claude-3-haiku",     0.25, 1.25),
+    ("OpenAI", "gpt-4o-mini",        0.15, 0.60),
+    ("OpenAI", "gpt-4o",             2.50, 10.0),
+    ("OpenAI", "gpt-4.1-mini",       0.40, 1.60),
+    ("OpenAI", "gpt-4.1",            2.0, 8.0),
+    ("OpenAI", "gpt-4-turbo",        10.0, 30.0),
+    ("OpenAI", "gpt-3.5-turbo",      0.50, 1.50),
+    ("OpenAI", "o4-mini",            1.10, 4.40),
+    ("OpenAI", "o3",                 2.0, 8.0),
+]
+
+
+def _seed_model_prices(conn: sqlite3.Connection) -> None:
+    """Top up default model prices. Uses INSERT OR IGNORE so missing family stems
+    (e.g. newly added model families) appear in both fresh and existing DBs without
+    ever clobbering a user's edited prices (a PK conflict is ignored)."""
+    conn.executemany(
+        "INSERT OR IGNORE INTO model_prices (provider, model, input_per_mtok, output_per_mtok) "
+        "VALUES (?, ?, ?, ?)",
+        _DEFAULT_MODEL_PRICES,
+    )
 
 
 def _migrate_chat_logs(conn: sqlite3.Connection) -> None:
@@ -471,6 +516,16 @@ def get_logs(conversation_id: int) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+def benchmark_run_logs(run_id: int) -> list[dict[str, Any]]:
+    """Every per-call log row for a benchmark run, across all its variant
+    conversations. Grouped by conversation so a variant's calls stay together."""
+    rows = get_conn().execute(
+        "SELECT * FROM chat_logs WHERE benchmark_run_id = ? ORDER BY conversation_id, id",
+        (run_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def all_logs() -> list[dict[str, Any]]:
     """Every log row across all conversations, joined to its conversation title.
     Used for the global, CSV-exportable table on the Logs page."""
@@ -560,6 +615,139 @@ def usage_by_server_tool() -> list[dict[str, Any]]:
         """
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+# =============================================================================
+# MODEL PRICING + COST ESTIMATES (Claude & OpenAI; rates are USD per 1M tokens)
+# =============================================================================
+
+def list_model_prices() -> list[dict[str, Any]]:
+    rows = get_conn().execute(
+        "SELECT provider, model, input_per_mtok, output_per_mtok "
+        "FROM model_prices ORDER BY provider, model"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_model_price(provider: str, model: str,
+                    input_per_mtok: Optional[float],
+                    output_per_mtok: Optional[float]) -> None:
+    get_conn().execute(
+        "INSERT INTO model_prices (provider, model, input_per_mtok, output_per_mtok) "
+        "VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(provider, model) DO UPDATE SET "
+        "input_per_mtok=excluded.input_per_mtok, output_per_mtok=excluded.output_per_mtok",
+        (provider, model, input_per_mtok, output_per_mtok),
+    )
+    get_conn().commit()
+
+
+def delete_model_price(provider: str, model: str) -> None:
+    get_conn().execute(
+        "DELETE FROM model_prices WHERE provider = ? AND model = ?", (provider, model)
+    )
+    get_conn().commit()
+
+
+def replace_model_prices(rows: list[dict[str, Any]]) -> None:
+    """Bulk-replace the whole pricing table (used by the Settings editor). Rows
+    missing a provider or model are skipped."""
+    conn = get_conn()
+    conn.execute("DELETE FROM model_prices")
+    cleaned = [
+        (str(r["provider"]).strip(), str(r["model"]).strip(),
+         r.get("input_per_mtok"), r.get("output_per_mtok"))
+        for r in rows
+        if str(r.get("provider") or "").strip() and str(r.get("model") or "").strip()
+    ]
+    conn.executemany(
+        "INSERT OR REPLACE INTO model_prices "
+        "(provider, model, input_per_mtok, output_per_mtok) VALUES (?, ?, ?, ?)",
+        cleaned,
+    )
+    conn.commit()
+
+
+def model_price_for(provider: str, model: str) -> Optional[dict[str, Any]]:
+    """Price for a (provider, model): exact match first, else the row whose model
+    is the longest prefix of `model` (so dated snapshots inherit a family price).
+    Only considers rows that actually have both rates set — blank placeholder rows
+    (parked, unpriced models) are ignored so they never shadow a real family price.
+    Returns None when nothing priced matches."""
+    if not provider or not model:
+        return None
+    rows = get_conn().execute(
+        "SELECT model, input_per_mtok, output_per_mtok FROM model_prices "
+        "WHERE provider = ? AND input_per_mtok IS NOT NULL AND output_per_mtok IS NOT NULL",
+        (provider,),
+    ).fetchall()
+    best = None
+    for r in rows:
+        key = r["model"]
+        if model == key:
+            return dict(r)
+        if key and model.startswith(key) and (best is None or len(key) > len(best["model"])):
+            best = dict(r)
+    return best
+
+
+def estimate_cost(provider: str, model: str,
+                  prompt_tokens: Optional[int],
+                  completion_tokens: Optional[int]) -> Optional[float]:
+    """Estimated USD cost for one model's usage, or None if the model is unpriced
+    (no matching row, or a placeholder row with both rates blank)."""
+    price = model_price_for(provider, model)
+    if not price:
+        return None
+    inp, out = price.get("input_per_mtok"), price.get("output_per_mtok")
+    if inp is None and out is None:
+        return None
+    return (prompt_tokens or 0) / 1e6 * (inp or 0) + (completion_tokens or 0) / 1e6 * (out or 0)
+
+
+def is_priced(provider: str, model: str) -> bool:
+    """True when a model resolves to a usable price (exact or family-prefix). Blank
+    placeholder rows are ignored by model_price_for, so they count as unpriced."""
+    return model_price_for(provider, model) is not None
+
+
+def ensure_model_listed(provider: str, model: str) -> None:
+    """Park an unpriced model in the table so it shows in the Settings editor (as a
+    blank row to fill in). Skips models already covered by a price. INSERT OR IGNORE
+    avoids duplicates; a parked blank row never shadows a family price (see
+    model_price_for), so if a covering family is added later the model un-hides."""
+    if not provider or not model or is_priced(provider, model):
+        return
+    get_conn().execute(
+        "INSERT OR IGNORE INTO model_prices "
+        "(provider, model, input_per_mtok, output_per_mtok) VALUES (?, ?, NULL, NULL)",
+        (provider, model),
+    )
+    get_conn().commit()
+
+
+def conversation_cost(conversation_id: int) -> Optional[float]:
+    """Total estimated cost for a conversation's LLM calls. Sums per (provider,
+    model) group so it stays correct even if a conversation mixed models. Returns
+    None when none of the models used are priced."""
+    rows = get_conn().execute(
+        """
+        SELECT provider, model,
+               COALESCE(SUM(prompt_tokens), 0)     AS prompt_tokens,
+               COALESCE(SUM(completion_tokens), 0) AS completion_tokens
+        FROM chat_logs
+        WHERE conversation_id = ? AND event_type = 'llm_call'
+        GROUP BY provider, model
+        """,
+        (conversation_id,),
+    ).fetchall()
+    total, priced = 0.0, False
+    for r in rows:
+        c = estimate_cost(r["provider"], r["model"], r["prompt_tokens"], r["completion_tokens"])
+        if c is not None:
+            total += c
+            priced = True
+    return total if priced else None
 
 
 # =============================================================================

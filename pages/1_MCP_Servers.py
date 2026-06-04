@@ -130,5 +130,26 @@ with st.form("add_server", clear_on_submit=True):
             oauth = {"token": new_token} if (new_auth == "token" and new_token) else None
             db.add_server(name=name, url=new_url, auth_type=new_auth,
                           enabled=True, oauth=oauth)
-            st.toast(f"Added {name}.", icon="✅")
+            # For OAuth servers, start authentication immediately so the user
+            # doesn't have to hunt for the Re-authenticate button afterward.
+            if new_auth == "oauth":
+                link_box = st.empty()
+                with st.spinner("Added — authenticating. Click the sign-in link if a "
+                                "browser doesn't open…"):
+                    try:
+                        token = OAuthHandler(name, new_url, oauth).authorize(
+                            on_auth_url=lambda url: link_box.markdown(
+                                f"🔐 [Click here to sign in]({url})"))
+                        if token:
+                            st.toast(f"Added {name} and authenticated.", icon="✅")
+                        else:
+                            logger.error("Auto-auth failed or timed out for new server %s", name)
+                            st.toast(f"Added {name}, but sign-in failed — use 🔐 Re-authenticate.",
+                                     icon="⚠️")
+                    except Exception as e:  # noqa: BLE001
+                        logger.exception("Auto-auth error for new server %s", name)
+                        st.toast(f"Added {name}, but OAuth errored: {e}", icon="⚠️")
+                get_client_and_tools.clear()
+            else:
+                st.toast(f"Added {name}.", icon="✅")
             st.rerun()

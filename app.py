@@ -19,7 +19,7 @@ import db
 import providers
 from ui_common import (init_app, render_nav, render_history, effective_system_prompt,
                        get_client_and_tools, server_signature,
-                       available_models, model_fingerprint)
+                       selectable_models, log_table_rows, fmt_cost)
 
 st.set_page_config(page_title="MCP Chat", page_icon="💬", layout="wide")
 init_app()
@@ -74,15 +74,22 @@ with st.sidebar:
         st.session_state.provider = provider_name
         st.session_state.model = providers.default_model(provider_name)
 
-    model_opts = available_models(provider_name, model_fingerprint(provider_name))
-    # Guarantee the active model is selectable so a locked chat never falls back
-    # to opts[0].
+    # Only models that have a price are offered (Claude/OpenAI); unpriced ones are
+    # parked in Settings → Model pricing. Local providers show everything.
+    model_opts = selectable_models(provider_name)
     if st.session_state.model not in model_opts:
-        model_opts = [st.session_state.model] + model_opts
+        # Keep the active model usable for locked chats / when nothing is priced;
+        # otherwise land on the first priced model.
+        if locked or not model_opts:
+            model_opts = [st.session_state.model] + model_opts
+        else:
+            st.session_state.model = model_opts[0]
     st.session_state.model = st.selectbox(
         "Model", model_opts, index=model_opts.index(st.session_state.model),
         disabled=locked,
     )
+    if (providers.PROVIDERS.get(provider_name) or {}).get("live"):
+        st.caption("Only priced models shown — add prices in ⚙️ Settings → Model pricing.")
 
     if locked:
         st.caption(f"🔒 Locked to **{st.session_state.provider}** for this chat — "
@@ -136,6 +143,9 @@ tools = [t for t in tools if chat_runner.server_of(t["name"]) in selected_server
 n_servers = len(selected_servers)
 st.caption(f"Provider: **{provider_name}** · Model: **{st.session_state.model}** · "
            f"{n_servers} server(s), {len(tools)} tool(s)")
+if st.session_state.conversation_id is not None:
+    _cost = db.conversation_cost(st.session_state.conversation_id)
+    st.caption(f"💲 Est. cost so far: **{fmt_cost(_cost)}**")
 if disc_errors:
     st.warning(
         "Some servers had issues: "
@@ -148,35 +158,16 @@ if disc_errors:
 if st.session_state.conversation_id is not None:
     with st.expander("📊 Logs & usage (this chat)"):
         u = db.conversation_usage(st.session_state.conversation_id)
-        c1, c2, c3, c4, c5 = st.columns(5)
+        c1, c2, c3, c4, c5, c6 = st.columns(6)
         c1.metric("Total tokens", f"{u['total_tokens']:,}")
         c2.metric("Prompt tokens", f"{u['prompt_tokens']:,}")
         c3.metric("Completion tokens", f"{u['completion_tokens']:,}")
         c4.metric("LLM time", f"{(u['llm_ms'] or 0) / 1000:.1f}s")
         c5.metric("Tool calls", u["tool_calls"])
+        c6.metric("Est. cost", fmt_cost(db.conversation_cost(st.session_state.conversation_id)))
         logs = db.get_logs(st.session_state.conversation_id)
         if logs:
-            st.dataframe(
-                [
-                    {
-                        "Time": r["created_at"][11:],
-                        "Event": r["event_type"],
-                        "Model": r["model"],
-                        "Total tokens": r["total_tokens"],
-                        "Duration (ms)": r["duration_ms"],
-                        "Result size (chars)": r["data_chars"],
-                        "Success": r["success"],
-                        "Attempt": r["attempt"],
-                        "Server": r["server"],
-                        "Tools": r["tools"],
-                        "Preview": (r["response_preview"] or
-                                    (json.loads(r["detail_json"]).get("result_preview")
-                                     if r["detail_json"] else "")),
-                    }
-                    for r in logs
-                ],
-                width='stretch', hide_index=True,
-            )
+            st.dataframe(log_table_rows(logs), width='stretch', hide_index=True)
         else:
             st.caption("No log entries yet for this chat.")
 

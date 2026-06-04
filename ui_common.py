@@ -5,6 +5,7 @@ Keeps one-time setup (DB seeding) and message-rendering logic in one place so th
 Chat page and the sub-pages stay small.
 """
 
+import json
 from datetime import datetime
 from typing import Any, Optional
 
@@ -57,6 +58,24 @@ def available_models(name: str, fingerprint: str) -> list[str]:
     if chosen and chosen not in live:
         live = [chosen] + live
     return live
+
+
+def selectable_models(provider: str) -> list[str]:
+    """Models to offer in a picker for `provider`. Local providers (no cost concept)
+    show everything. Paid/live providers (Claude, OpenAI) show only models that have
+    a price; any model with no price at all is parked in the pricing table (so it
+    appears in Settings → Model pricing) and hidden until the user gives it a cost.
+    Not cached: it writes placeholder rows and must reflect pricing edits live."""
+    models = available_models(provider, model_fingerprint(provider))
+    if not (providers.PROVIDERS.get(provider) or {}).get("live"):
+        return list(models)
+    out = []
+    for m in models:
+        if db.is_priced(provider, m):
+            out.append(m)
+        else:
+            db.ensure_model_listed(provider, m)
+    return out
 
 
 def server_signature() -> str:
@@ -125,6 +144,109 @@ def display_text(message: dict[str, Any]) -> Optional[tuple[str, str]]:
         return (role, text) if text else None
 
     return None
+
+
+def copy_button(text: str, label: str = "📋 Copy to clipboard",
+                height: int = 46, key: str = "copy") -> None:
+    """Render a button that copies `text` to the user's clipboard in the browser.
+
+    Uses a temp-textarea + document.execCommand('copy') inside the component iframe
+    (navigator.clipboard is usually blocked there). Works for web/Docker since the
+    copy happens client-side. `text` is embedded as a safe JS string literal."""
+    payload = json.dumps(text)  # safe JS string literal (quotes/newlines/unicode)
+    btn_id = f"copybtn_{key}"
+    # st.iframe renders the HTML in a sandboxed iframe, so the <script> runs (unlike
+    # st.html, which strips scripts). Replaces the deprecated components.v1.html.
+    html = (
+        f'<button id="{btn_id}" style="'
+        "width:100%; padding:8px 12px; cursor:pointer; border-radius:8px;"
+        "border:1px solid rgba(49,51,63,0.2); background:#fff; color:#262730;"
+        f'font-size:14px; font-weight:600;">{label}</button>'
+        "<script>"
+        f"const data = {payload};"
+        f'const btn = document.getElementById("{btn_id}");'
+        'btn.addEventListener("click", () => {'
+        '  const ta = document.createElement("textarea");'
+        "  ta.value = data;"
+        '  ta.style.position = "fixed"; ta.style.opacity = "0";'
+        "  document.body.appendChild(ta);"
+        "  ta.focus(); ta.select();"
+        "  let ok = false;"
+        '  try { ok = document.execCommand("copy"); } catch (e) { ok = false; }'
+        "  document.body.removeChild(ta);"
+        f"  const original = {json.dumps(label)};"
+        '  btn.textContent = ok ? "✓ Copied!" : "⚠ Press Ctrl/Cmd+C";'
+        "  setTimeout(() => { btn.textContent = original; }, 2000);"
+        "});"
+        "</script>"
+    )
+    st.iframe(html, height=height)
+
+
+def fmt_cost(value: Optional[float]) -> str:
+    """Format an estimated USD cost. `None` (unpriced / local model) shows as '—'.
+    Small amounts keep enough precision to be meaningful (e.g. '$0.0123')."""
+    if value is None:
+        return "—"
+    if value == 0:
+        return "$0.00"
+    if value < 0.01:
+        return f"${value:.4f}"
+    if value < 1:
+        return f"${value:.3f}"
+    return f"${value:,.2f}"
+
+
+def _log_preview(r: dict[str, Any]) -> str:
+    """Best-effort preview text for a chat_logs row: the stored response preview,
+    else the tool result preview tucked inside detail_json."""
+    if r.get("response_preview"):
+        return r["response_preview"]
+    if r.get("detail_json"):
+        try:
+            return json.loads(r["detail_json"]).get("result_preview", "")
+        except (json.JSONDecodeError, TypeError):
+            return ""
+    return ""
+
+
+def _log_arguments(r: dict[str, Any]) -> str:
+    """The tool-call arguments stored in detail_json, rendered as compact JSON."""
+    if r.get("detail_json"):
+        try:
+            args = json.loads(r["detail_json"]).get("arguments")
+            return json.dumps(args) if args is not None else ""
+        except (json.JSONDecodeError, TypeError):
+            return ""
+    return ""
+
+
+def log_table_rows(logs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Map raw chat_logs rows to the standardized per-call table columns shared by
+    the Chat, Logs, and Benchmark pages — one source of truth so every per-call
+    table shows the same metrics."""
+    return [
+        {
+            "Time": (r["created_at"] or "")[11:],
+            "Event": r["event_type"],
+            "Provider": r["provider"],
+            "Model": r["model"],
+            "Call type": r["call_type"],
+            "Prompt tokens": r["prompt_tokens"],
+            "Completion tokens": r["completion_tokens"],
+            "Total tokens": r["total_tokens"],
+            "Duration (ms)": r["duration_ms"],
+            "Result size (chars)": r["data_chars"],
+            "Success": r["success"],
+            "Error": r["error"],
+            "Attempt": r["attempt"],
+            "Server": r["server"],
+            "Tools": r["tools"],
+            "Arguments": _log_arguments(r),
+            "Preview": _log_preview(r),
+        }
+        for r in logs
+    ]
 
 
 def render_history(messages: list[dict[str, Any]]) -> None:
