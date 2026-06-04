@@ -591,6 +591,26 @@ def list_benchmark_runs() -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+def clear_all_benchmark_runs() -> int:
+    """Delete every benchmark run and its variants, plus the per-variant
+    conversations they created (and those conversations' messages and logs).
+    Returns the number of runs removed. Regular chats are untouched."""
+    conn = get_conn()
+    conv_ids = [r[0] for r in conn.execute(
+        "SELECT conversation_id FROM benchmark_variants "
+        "WHERE conversation_id IS NOT NULL"
+    ).fetchall()]
+    for cid in conv_ids:
+        conn.execute("DELETE FROM messages WHERE conversation_id = ?", (cid,))
+        conn.execute("DELETE FROM chat_logs WHERE conversation_id = ?", (cid,))
+        conn.execute("DELETE FROM conversations WHERE id = ?", (cid,))
+    n = conn.execute("SELECT COUNT(*) FROM benchmark_runs").fetchone()[0]
+    conn.execute("DELETE FROM benchmark_variants")
+    conn.execute("DELETE FROM benchmark_runs")
+    conn.commit()
+    return n
+
+
 def get_benchmark_variants(run_id: int) -> list[dict[str, Any]]:
     rows = get_conn().execute(
         "SELECT * FROM benchmark_variants WHERE run_id = ? ORDER BY id",

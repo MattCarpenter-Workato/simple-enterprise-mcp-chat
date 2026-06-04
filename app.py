@@ -178,17 +178,17 @@ if st.session_state.conversation_id is not None:
             st.dataframe(
                 [
                     {
-                        "time": r["created_at"][11:],
-                        "type": r["event_type"],
-                        "model": r["model"],
-                        "tokens": r["total_tokens"],
-                        "ms": r["duration_ms"],
-                        "data_chars": r["data_chars"],
-                        "ok": r["success"],
-                        "attempt": r["attempt"],
-                        "server": r["server"],
-                        "tools": r["tools"],
-                        "preview": (r["response_preview"] or
+                        "Time": r["created_at"][11:],
+                        "Event": r["event_type"],
+                        "Model": r["model"],
+                        "Total tokens": r["total_tokens"],
+                        "Duration (ms)": r["duration_ms"],
+                        "Result size (chars)": r["data_chars"],
+                        "Success": r["success"],
+                        "Attempt": r["attempt"],
+                        "Server": r["server"],
+                        "Tools": r["tools"],
+                        "Preview": (r["response_preview"] or
                                     (json.loads(r["detail_json"]).get("result_preview")
                                      if r["detail_json"] else "")),
                     }

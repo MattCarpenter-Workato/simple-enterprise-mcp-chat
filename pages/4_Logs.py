@@ -76,29 +76,29 @@ if all_rows:
     st.dataframe(
         [
             {
-                "id": r["id"],
-                "created_at": r["created_at"],
-                "conversation": r["conversation"],
-                "conversation_id": r["conversation_id"],
-                "event_type": r["event_type"],
-                "provider": r["provider"],
-                "model": r["model"],
-                "call_type": r["call_type"],
-                "prompt_tokens": r["prompt_tokens"],
-                "completion_tokens": r["completion_tokens"],
-                "total_tokens": r["total_tokens"],
-                "duration_ms": r["duration_ms"],
-                "data_chars": r["data_chars"],
-                "success": r["success"],
-                "error": r["error"],
-                "attempt": r["attempt"],
-                "server": r["server"],
-                "servers": r["servers"],
-                "tools": r["tools"],
-                "arguments": _arguments(r),
-                "user_prompt": r["user_prompt"],
-                "system_prompt": r["system_prompt"],
-                "preview": _preview(r),
+                "ID": r["id"],
+                "Time": r["created_at"],
+                "Conversation": r["conversation"],
+                "Conversation ID": r["conversation_id"],
+                "Event": r["event_type"],
+                "Provider": r["provider"],
+                "Model": r["model"],
+                "Call type": r["call_type"],
+                "Prompt tokens": r["prompt_tokens"],
+                "Completion tokens": r["completion_tokens"],
+                "Total tokens": r["total_tokens"],
+                "Duration (ms)": r["duration_ms"],
+                "Result size (chars)": r["data_chars"],
+                "Success": r["success"],
+                "Error": r["error"],
+                "Attempt": r["attempt"],
+                "Server": r["server"],
+                "Servers": r["servers"],
+                "Tools": r["tools"],
+                "Arguments": _arguments(r),
+                "User prompt": r["user_prompt"],
+                "System prompt": r["system_prompt"],
+                "Preview": _preview(r),
             }
             for r in all_rows
         ],
@@ -127,28 +127,28 @@ else:
     c1.metric("Total tokens", f"{u['total_tokens']:,}")
     c2.metric("LLM calls", u["llm_calls"])
     c3.metric("LLM time", f"{(u['llm_ms'] or 0) / 1000:.1f}s")
-    c4.metric("Avg tool ms", int(u["avg_tool_ms"] or 0))
+    c4.metric("Avg tool time (ms)", int(u["avg_tool_ms"] or 0))
 
     logs = db.get_logs(conv["id"])
     if logs:
         st.dataframe(
             [
                 {
-                    "time": r["created_at"][11:],
-                    "type": r["event_type"],
-                    "provider": r["provider"],
-                    "model": r["model"],
-                    "call_type": r["call_type"],
-                    "prompt_tok": r["prompt_tokens"],
-                    "completion_tok": r["completion_tokens"],
-                    "total_tok": r["total_tokens"],
-                    "ms": r["duration_ms"],
-                    "data_chars": r["data_chars"],
-                    "ok": r["success"],
-                    "attempt": r["attempt"],
-                    "server": r["server"],
-                    "tools": r["tools"],
-                    "preview": (r["response_preview"] or
+                    "Time": r["created_at"][11:],
+                    "Event": r["event_type"],
+                    "Provider": r["provider"],
+                    "Model": r["model"],
+                    "Call type": r["call_type"],
+                    "Prompt tokens": r["prompt_tokens"],
+                    "Completion tokens": r["completion_tokens"],
+                    "Total tokens": r["total_tokens"],
+                    "Duration (ms)": r["duration_ms"],
+                    "Result size (chars)": r["data_chars"],
+                    "Success": r["success"],
+                    "Attempt": r["attempt"],
+                    "Server": r["server"],
+                    "Tools": r["tools"],
+                    "Preview": (r["response_preview"] or
                                 (json.loads(r["detail_json"]).get("result_preview")
                                  if r["detail_json"] else "")),
                 }
@@ -168,7 +168,21 @@ st.subheader("Models — tokens & latency")
 st.caption("Across all conversations. Use this to compare models/providers.")
 model_rows = db.usage_by_provider_model()
 if model_rows:
-    st.dataframe(model_rows, width='stretch', hide_index=True)
+    st.dataframe(
+        [
+            {
+                "Provider": r["provider"],
+                "Model": r["model"],
+                "Calls": r["calls"],
+                "Prompt tokens": r["prompt_tokens"],
+                "Completion tokens": r["completion_tokens"],
+                "Total tokens": r["total_tokens"],
+                "Avg latency (ms)": r["avg_ms"],
+            }
+            for r in model_rows
+        ],
+        width='stretch', hide_index=True,
+    )
     chart = {r["model"] or r["provider"]: (r["avg_ms"] or 0) for r in model_rows}
     if chart:
         st.bar_chart(chart, y_label="avg LLM latency (ms)")
@@ -184,7 +198,20 @@ st.subheader("MCP servers & tools — latency & data size")
 st.caption("Across all conversations. Use this to tune which MCP servers to keep.")
 tool_rows = db.usage_by_server_tool()
 if tool_rows:
-    st.dataframe(tool_rows, width='stretch', hide_index=True)
+    st.dataframe(
+        [
+            {
+                "Server": r["server"],
+                "Tool": r["tool"],
+                "Calls": r["calls"],
+                "Avg round-trip (ms)": r["avg_ms"],
+                "Max round-trip (ms)": r["max_ms"],
+                "Avg result size (chars)": r["avg_data_chars"],
+            }
+            for r in tool_rows
+        ],
+        width='stretch', hide_index=True,
+    )
     # Average latency per server (aggregate the per-tool rows by server).
     by_server: dict[str, list[int]] = {}
     for r in tool_rows:

@@ -162,39 +162,39 @@ st.caption(f"**Prompt:** {run['prompt']}")
 
 rows = db.benchmark_comparison(run["id"])
 if not rows:
-    st.info("This run has no variants.")
+    st.info("This run has no models.")
     st.stop()
 
 st.dataframe(
     [
         {
-            "variant": f"{r['provider']} · {r['model']}",
-            "status": r["status"],
-            "total time (s)": round((r["total_ms"] or 0) / 1000, 1),
-            "total tokens": r["total_tokens"],
-            "prompt tok": r["prompt_tokens"],
-            "completion tok": r["completion_tokens"],
+            "Model": f"{r['provider']} · {r['model']}",
+            "Status": r["status"],
+            "Total time (s)": round((r["total_ms"] or 0) / 1000, 1),
+            "Total tokens": r["total_tokens"],
+            "Prompt tokens": r["prompt_tokens"],
+            "Completion tokens": r["completion_tokens"],
             "LLM calls": r["llm_calls"],
             "LLM time (s)": round((r["llm_ms"] or 0) / 1000, 1),
-            "tool calls": r["tool_calls"],
-            "tool errors": r["tool_errors"],
-            "retries": r["retries"],
-            "answer": r["answer"],
+            "Tool calls": r["tool_calls"],
+            "Tool errors": r["tool_errors"],
+            "Retries": r["retries"],
+            "Answer": r["answer"],
         }
         for r in rows
     ],
     width="stretch", hide_index=True,
 )
 
-# Charts: total tokens and total turn time per variant.
+# Charts: total tokens and total turn time per model.
 ok_rows = [r for r in rows if r["status"] == "ok"]
 if ok_rows:
     c1, c2 = st.columns(2)
     with c1:
-        st.caption("Total tokens per variant")
+        st.caption("Total tokens per model")
         st.bar_chart({f"{r['provider']} · {r['model']}": r["total_tokens"] for r in ok_rows})
     with c2:
-        st.caption("Total turn time per variant (s)")
+        st.caption("Total turn time per model (s)")
         st.bar_chart({f"{r['provider']} · {r['model']}": round((r["total_ms"] or 0) / 1000, 2)
                       for r in ok_rows})
 
@@ -204,7 +204,7 @@ for r in rows:
     header = f"{r['provider']} · {r['model']}"
     with st.expander(header + (f"  — ⚠️ {r['error']}" if r["status"] == "error" else "")):
         if r["status"] == "error":
-            st.error(r["error"] or "Variant failed.")
+            st.error(r["error"] or "Model failed.")
         elif r["conversation_id"]:
             answer = ""
             for m in reversed(db.get_messages(r["conversation_id"])):
