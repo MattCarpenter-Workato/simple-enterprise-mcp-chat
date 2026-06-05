@@ -43,8 +43,9 @@ def model_fingerprint(name: str) -> str:
     if not spec.get("live"):
         return ""
     if spec.get("local"):
-        # Keyless local provider (Ollama): bust the cache when the host changes.
-        return (db.get_secret("OLLAMA_BASE_URL") or "")[-12:]
+        # Keyless local provider (Ollama/LM Studio): bust the cache when its host
+        # changes, keyed off that provider's own base-URL secret.
+        return (db.get_secret(spec["base_url_key"]) or "")[-12:]
     key_secret = "OPENAI_API_KEY" if spec["kind"] == "openai" else "CLAUDE_API_KEY"
     return (db.get_secret(key_secret) or "")[-8:]
 

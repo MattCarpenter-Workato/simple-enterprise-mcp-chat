@@ -16,6 +16,7 @@ import streamlit as st
 
 import chat_runner
 import db
+import lms_cli
 import providers
 from ui_common import (init_app, render_nav, render_history, effective_system_prompt,
                        get_client_and_tools, server_signature, available_models,
@@ -93,13 +94,31 @@ with st.sidebar:
         st.caption("Only priced models shown — add prices in ⚙️ Settings → Model pricing.")
 
     # Local providers (Ollama/LM Studio): show whether the service is reachable and
-    # let the user re-discover installed models after pulling a new one.
+    # let the user re-discover models. For LM Studio, the selected model may be
+    # downloaded but not loaded — surface that and offer to load it via the `lms`
+    # CLI (LM Studio's HTTP /v1/models lists only loaded models, so `loaded` here
+    # is exactly the set currently loaded).
     if _spec.get("local"):
-        if providers.ping(provider_name) is None:
-            st.caption("🟢 Service reachable")
+        loaded = providers.loaded_models(provider_name)  # None => unreachable
+        if loaded is None:
+            st.caption(f"🔴 {provider_name} not reachable — is the server running? "
+                       f"Check {_spec['base_url_key']} in ⚙️ Settings.")
         else:
-            st.caption("🔴 Not reachable — is the server running? "
-                       "Run `ollama serve` or check OLLAMA_BASE_URL in ⚙️ Settings.")
+            st.caption("🟢 Service reachable")
+            if provider_name == "LM Studio" and lms_cli.available() and not locked:
+                sel = st.session_state.model
+                if sel in loaded:
+                    st.caption(f"✓ **{sel}** is loaded")
+                else:
+                    st.caption(f"⚪ **{sel}** is downloaded but not loaded")
+                    if st.button(f"⬇️ Load {sel}", key="lms_load"):
+                        with st.spinner(f"Loading {sel} into LM Studio…"):
+                            ok, msg = lms_cli.load(sel)
+                        if ok:
+                            st.success(f"Loaded {sel}")
+                            st.rerun()
+                        else:
+                            st.error(f"Load failed: {msg}")
         if st.button("🔄 Refresh models", key="local_refresh", disabled=locked):
             available_models.clear()
             st.rerun()
