@@ -16,9 +16,10 @@ import streamlit as st
 
 import chat_runner
 import db
+import lms_cli
 import providers
 from ui_common import (init_app, render_nav, render_history, effective_system_prompt,
-                       get_client_and_tools, server_signature,
+                       get_client_and_tools, server_signature, available_models,
                        selectable_models, log_table_rows, fmt_cost)
 
 st.set_page_config(page_title="MCP Chat", page_icon="💬", layout="wide")
@@ -88,8 +89,39 @@ with st.sidebar:
         "Model", model_opts, index=model_opts.index(st.session_state.model),
         disabled=locked,
     )
-    if (providers.PROVIDERS.get(provider_name) or {}).get("live"):
+    _spec = providers.PROVIDERS.get(provider_name) or {}
+    if _spec.get("live") and not _spec.get("local"):
         st.caption("Only priced models shown — add prices in ⚙️ Settings → Model pricing.")
+
+    # Local providers (Ollama/LM Studio): show whether the service is reachable and
+    # let the user re-discover models. For LM Studio, the selected model may be
+    # downloaded but not loaded — surface that and offer to load it via the `lms`
+    # CLI (LM Studio's HTTP /v1/models lists only loaded models, so `loaded` here
+    # is exactly the set currently loaded).
+    if _spec.get("local"):
+        loaded = providers.loaded_models(provider_name)  # None => unreachable
+        if loaded is None:
+            st.caption(f"🔴 {provider_name} not reachable — is the server running? "
+                       f"Check {_spec['base_url_key']} in ⚙️ Settings.")
+        else:
+            st.caption("🟢 Service reachable")
+            if provider_name == "LM Studio" and lms_cli.available() and not locked:
+                sel = st.session_state.model
+                if sel in loaded:
+                    st.caption(f"✓ **{sel}** is loaded")
+                else:
+                    st.caption(f"⚪ **{sel}** is downloaded but not loaded")
+                    if st.button(f"⬇️ Load {sel}", key="lms_load"):
+                        with st.spinner(f"Loading {sel} into LM Studio…"):
+                            ok, msg = lms_cli.load(sel)
+                        if ok:
+                            st.success(f"Loaded {sel}")
+                            st.rerun()
+                        else:
+                            st.error(f"Load failed: {msg}")
+        if st.button("🔄 Refresh models", key="local_refresh", disabled=locked):
+            available_models.clear()
+            st.rerun()
 
     if locked:
         st.caption(f"🔒 Locked to **{st.session_state.provider}** for this chat — "

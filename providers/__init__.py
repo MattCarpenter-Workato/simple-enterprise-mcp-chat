@@ -12,6 +12,7 @@ import re
 from typing import Any, Optional
 
 import db
+import lms_cli
 from .base import Provider
 from .claude import ClaudeProvider
 from .openai_like import OpenAILikeProvider
@@ -40,13 +41,21 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "kind": "openai",
         "model_key": "OLLAMA_MODEL",
         "default_model": "llama3.2",
-        "models": ["llama3.2", "mistral", "qwen3:8b", "qwen2.5"],
+        "models": ["llama3.2", "mistral", "qwen3:8b", "qwen2.5"],  # static fallback
+        "live": True,
+        "local": True,  # no API key, no per-model pricing gate
+        "base_url_key": "OLLAMA_BASE_URL",
+        "default_base_url": "http://localhost:11434",
     },
     "LM Studio": {
         "kind": "openai",
         "model_key": "LMSTUDIO_MODEL",
         "default_model": "local-model",
-        "models": ["local-model"],
+        "models": ["local-model"],  # static fallback
+        "live": True,
+        "local": True,
+        "base_url_key": "LMSTUDIO_BASE_URL",
+        "default_base_url": "http://localhost:1234",
     },
 }
 
@@ -106,8 +115,19 @@ def fetch_models(name: str) -> Optional[list[str]]:
     if not spec or not spec.get("live"):
         return None
     try:
+        # LM Studio's HTTP API only lists *loaded* models, so prefer the `lms` CLI
+        # which enumerates every downloaded one (embeddings already excluded there).
+        # Falls through to the HTTP list when the CLI is absent / returns nothing.
+        if name == "LM Studio":
+            cli_models = lms_cli.downloaded_chat_models()
+            if cli_models:
+                return sorted(set(cli_models))
         client = get_provider(name).client  # raises ValueError if the key is missing
-        if spec["kind"] == "claude":
+        if spec.get("local"):  # Ollama: keep every installed *chat* model (no gpt-*
+            # filter), but drop embedding models — they speak a different endpoint and
+            # would 404 on a chat turn. Ollama's /v1/models doesn't tag model type.
+            ids = [m.id for m in client.models.list().data if "embed" not in m.id.lower()]
+        elif spec["kind"] == "claude":
             ids = [m.id for m in client.models.list(limit=100).data
                    if m.id.startswith("claude")]
         else:  # openai
@@ -119,11 +139,25 @@ def fetch_models(name: str) -> Optional[list[str]]:
         return None
 
 
-def _ollama_base_url() -> str:
-    base = (db.get_secret("OLLAMA_BASE_URL") or "http://localhost:11434").rstrip("/")
-    if not base.endswith("/v1"):
-        base += "/v1"
-    return base
+def loaded_models(name: str) -> Optional[list[str]]:
+    """The model ids the provider's /v1/models reports right now, or None if the
+    endpoint is unreachable. Doubles as a liveness probe for local providers (None
+    => service down). Note the semantics differ by provider: for LM Studio these
+    are the *loaded* models, while Ollama lists all installed ones. Deliberately
+    uncached — callers want the current state, not the 1h-cached discovery list."""
+    try:
+        return [m.id for m in get_provider(name).client.models.list().data]
+    except Exception as e:  # noqa: BLE001 — any failure means "not reachable"
+        logger.info("loaded_models probe failed for %s: %s", name, e)
+        return None
+
+
+def _local_base_url(spec: dict) -> str:
+    """Resolve a local provider's OpenAI-compatible base URL from its configured
+    host (spec['base_url_key'] secret, else spec['default_base_url']), ensuring the
+    '/v1' suffix the OpenAI SDK expects."""
+    base = (db.get_secret(spec["base_url_key"]) or spec["default_base_url"]).rstrip("/")
+    return base if base.endswith("/v1") else base + "/v1"
 
 
 def get_provider(name: str) -> Provider:
@@ -146,13 +180,10 @@ def get_provider(name: str) -> Provider:
             raise ValueError("CLAUDE_API_KEY is not set. Add it on the Settings page.")
         return ClaudeProvider(api_key=key)
 
-    if name == "Ollama":
-        return OpenAILikeProvider("Ollama", api_key="ollama", base_url=_ollama_base_url())
-
-    if name == "LM Studio":
-        base = (db.get_secret("LMSTUDIO_BASE_URL") or "http://localhost:1234/v1").rstrip("/")
-        if not base.endswith("/v1"):
-            base += "/v1"
-        return OpenAILikeProvider("LM Studio", api_key="lm-studio", base_url=base)
+    spec = PROVIDERS[name]
+    if spec.get("local"):
+        # Ollama / LM Studio: keyless OpenAI-compatible servers. The api_key is
+        # ignored by both; the host comes from the provider's own base_url_key.
+        return OpenAILikeProvider(name, api_key="local", base_url=_local_base_url(spec))
 
     raise ValueError(f"Unhandled provider: {name}")
